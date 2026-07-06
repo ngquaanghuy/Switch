@@ -1,0 +1,3 @@
+test_encode 4 0.00220387
+test_cli_encode 4 0.0865674
+---

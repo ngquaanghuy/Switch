@@ -1,0 +1,12 @@
+#pragma once
+
+#define SWITCH_VERSION_MAJOR 0
+#define SWITCH_VERSION_MINOR 1
+#define SWITCH_VERSION_PATCH 0
+#define SWITCH_VERSION_SUFFIX "-dev"
+
+#define SWITCH_VERSION_STRING "0.1.0-dev"
+
+// Python compatibility
+#define SWITCH_PYTHON_MIN_MAJOR 3
+#define SWITCH_PYTHON_MIN_MINOR 14
