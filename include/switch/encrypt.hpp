@@ -15,15 +15,8 @@ enum class EncryptType {
     Aes256,
 };
 
-// Determine AES type from hex-encoded key length.
-// 32 hex chars (16 bytes) → Aes128
-// 48 hex chars (24 bytes) → Aes192
-// 64 hex chars (32 bytes) → Aes256
-// Other → std::nullopt
-std::optional<EncryptType> parse_encrypt_type_from_key(std::string_view hex_key);
-
 // Convert hex string to byte vector.
-// Returns std::nullopt if string contains non-hex chars or odd length.
+// Returns std::nullopt if string is empty, contains non-hex chars, or odd length.
 std::optional<std::vector<uint8_t>> hex_to_bytes(std::string_view hex);
 
 // Get human-readable name for an encryption type.

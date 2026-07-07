@@ -32,10 +32,9 @@ TEST_CASE("hex_to_bytes: valid hex strings") {
     CHECK((*result)[3] == 0xEF);
 }
 
-TEST_CASE("hex_to_bytes: empty string") {
+TEST_CASE("hex_to_bytes: empty string returns nullopt") {
     auto result = hex_to_bytes("");
-    CHECK(result.has_value());
-    CHECK(result->empty());
+    CHECK(result == std::nullopt);
 }
 
 TEST_CASE("hex_to_bytes: uppercase hex") {
@@ -53,37 +52,6 @@ TEST_CASE("hex_to_bytes: odd length returns nullopt") {
 TEST_CASE("hex_to_bytes: invalid chars returns nullopt") {
     CHECK(hex_to_bytes("xyz") == std::nullopt);
     CHECK(hex_to_bytes("0g") == std::nullopt);
-}
-
-// =========================================================================
-// parse_encrypt_type_from_key
-// =========================================================================
-
-TEST_CASE("parse_encrypt_type_from_key: 16-byte key → AES-128") {
-    // 32 hex chars = 16 bytes
-    std::string key(32, 'a');
-    auto result = parse_encrypt_type_from_key(key);
-    REQUIRE(result.has_value());
-    CHECK(*result == EncryptType::Aes128);
-}
-
-TEST_CASE("parse_encrypt_type_from_key: 24-byte key → AES-192") {
-    std::string key(48, 'b');
-    auto result = parse_encrypt_type_from_key(key);
-    REQUIRE(result.has_value());
-    CHECK(*result == EncryptType::Aes192);
-}
-
-TEST_CASE("parse_encrypt_type_from_key: 32-byte key → AES-256") {
-    std::string key(64, 'c');
-    auto result = parse_encrypt_type_from_key(key);
-    REQUIRE(result.has_value());
-    CHECK(*result == EncryptType::Aes256);
-}
-
-TEST_CASE("parse_encrypt_type_from_key: invalid length → nullopt") {
-    CHECK(parse_encrypt_type_from_key("abcd") == std::nullopt);   // 8 hex = 4 bytes
-    CHECK(parse_encrypt_type_from_key(std::string(100, 'x')) == std::nullopt);
 }
 
 // =========================================================================
@@ -296,7 +264,9 @@ TEST_CASE("encrypt_file: encrypt empty file") {
 // =========================================================================
 
 TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
-    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto key128 = from_hex("000102030405060708090a0b0c0d0e0f");
+    auto key192 = from_hex("000102030405060708090a0b0c0d0e0f1011121314151617");
+    auto key256 = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     auto iv  = from_hex("00000000000000000000000000000000");
 
     std::string input_path = "/tmp/switch_test_enc_3types.py";
@@ -304,11 +274,18 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
     inp << "print('hello from switch encrypted')\n";
     inp.close();
 
-    for (auto type : {EncryptType::Aes128, EncryptType::Aes192, EncryptType::Aes256}) {
-        std::string output_path = "/tmp/switch_test_enc_3types_" + encrypt_type_name(type) + ".py";
+    struct TestCase { EncryptType type; std::vector<uint8_t> key; };
+    std::vector<TestCase> tests = {
+        {EncryptType::Aes128, key128},
+        {EncryptType::Aes192, key192},
+        {EncryptType::Aes256, key256},
+    };
+
+    for (auto& tc : tests) {
+        std::string output_path = "/tmp/switch_test_enc_3types_" + encrypt_type_name(tc.type) + ".py";
         std::string error;
-        bool ok = encrypt_file(type, input_path, output_path, key, iv, error);
-        INFO("error for ", encrypt_type_name(type), ": ", error);
+        bool ok = encrypt_file(tc.type, input_path, output_path, tc.key, iv, error);
+        INFO("error for ", encrypt_type_name(tc.type), ": ", error);
         REQUIRE(ok == true);
 
         // Read output and verify it's a valid Python wrapper

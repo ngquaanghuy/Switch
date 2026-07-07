@@ -7,6 +7,15 @@
 
 #include <openssl/crypto.h>
 
+// F03: Cleanup OpenSSL thread-local state on exit.
+// Using std::atexit ensures it runs after ALL return paths, not just fallthrough.
+namespace {
+struct OpenSSLCleanup {
+    ~OpenSSLCleanup() { OPENSSL_thread_stop(); }
+};
+OpenSSLCleanup openssl_cleanup_instance;
+} // anonymous namespace
+
 int main(int argc, const char* argv[]) {
     auto args = switch_cli::parse(argc, argv);
     if (!args) {
@@ -80,6 +89,22 @@ int main(int argc, const char* argv[]) {
             return 1;
         }
 
+        // F01: Validate key length matches AES variant
+        const auto& encrypt_type = *args->encrypt_type;
+        size_t expected = 0;
+        switch (encrypt_type) {
+        case switch_encrypt::EncryptType::Aes128: expected = 16; break;
+        case switch_encrypt::EncryptType::Aes192: expected = 24; break;
+        case switch_encrypt::EncryptType::Aes256: expected = 32; break;
+        }
+        if (key->size() != expected) {
+            std::cerr << "switch: key must be " << (expected * 2)
+                      << " hex characters (" << expected << " bytes) for "
+                      << switch_encrypt::encrypt_type_name(encrypt_type)
+                      << ", got " << key->size() * 2 << " hex characters\n";
+            return 1;
+        }
+
         // Parse or generate IV
         std::vector<uint8_t> iv;
         if (args->encrypt_iv) {
@@ -98,7 +123,6 @@ int main(int argc, const char* argv[]) {
         }
 
         const auto& input_path  = args->positional[0];
-        const auto& encrypt_type = *args->encrypt_type;
 
         // Derive output path: use -o if given, else <input>.<encname>.py
         std::string output_path;
@@ -136,8 +160,5 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
-    // Clean up OpenSSL thread-local state before exit to prevent
-    // double-free in atexit handler (known OpenSSL 3.x issue on Linux)
-    OPENSSL_thread_stop();
     return 0;
 }

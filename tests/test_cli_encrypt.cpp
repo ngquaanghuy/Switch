@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <vector>
 
 // Helper: create a temp file with content, returns path
 static std::string create_temp_file(const std::string& content) {
@@ -27,6 +28,12 @@ static std::string read_file(const std::string& path) {
     in.read(content.data(), size);
     return content;
 }
+
+// F08: RAII guard — removes file(s) on scope exit, even on test failure
+struct TempFileGuard {
+    std::vector<std::string> paths;
+    ~TempFileGuard() { for (auto& p : paths) std::remove(p.c_str()); }
+};
 
 static const char* AES256_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
@@ -172,6 +179,7 @@ TEST_CASE("cli parse: --encode still works") {
 TEST_CASE("encrypt_file e2e: AES-256 output is runnable Python") {
     std::string input_path = create_temp_file("print('hello from switch encrypted')\n");
     std::string output_path = "/tmp/switch_test_enc_e2e_aes256.py";
+    TempFileGuard guard{{input_path, output_path}};
 
     auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
     auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
@@ -203,14 +211,12 @@ TEST_CASE("encrypt_file e2e: AES-256 output is runnable Python") {
     INFO("python output: ", py_output);
     CHECK(WEXITSTATUS(rc) == 0);
     CHECK(py_output.find("hello from switch encrypted") != std::string::npos);
-
-    std::remove(input_path.c_str());
-    std::remove(output_path.c_str());
 }
 
 TEST_CASE("encrypt_file e2e: AES-128 output runnable with python") {
     std::string input_path = create_temp_file("x = 42; print('answer:', x)\n");
     std::string output_path = "/tmp/switch_test_enc_e2e_aes128.py";
+    TempFileGuard guard{{input_path, output_path}};
 
     auto key = switch_encrypt::hex_to_bytes("000102030405060708090a0b0c0d0e0f");
     auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
@@ -232,14 +238,12 @@ TEST_CASE("encrypt_file e2e: AES-128 output runnable with python") {
     INFO("python output: ", py_output);
     CHECK(WEXITSTATUS(rc) == 0);
     CHECK(py_output.find("answer: 42") != std::string::npos);
-
-    std::remove(input_path.c_str());
-    std::remove(output_path.c_str());
 }
 
 TEST_CASE("encrypt_file e2e: all three AES types produce runnable Python") {
     std::string input_path = create_temp_file("print('aes_ok')\n");
     std::string output_path = "/tmp/switch_test_enc_e2e_3types.py";
+    TempFileGuard guard{{input_path, output_path}};
 
     auto key128 = switch_encrypt::hex_to_bytes("000102030405060708090a0b0c0d0e0f");
     auto key192 = switch_encrypt::hex_to_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
@@ -276,35 +280,49 @@ TEST_CASE("encrypt_file e2e: all three AES types produce runnable Python") {
         CHECK(WEXITSTATUS(rc) == 0);
         CHECK(py_output.find("aes_ok") != std::string::npos);
     }
-
-    std::remove(input_path.c_str());
-    std::remove(output_path.c_str());
 }
 
 TEST_CASE("encrypt_file e2e: empty input produces runnable Python") {
     std::string input_path = create_temp_file("");
     std::string output_path = "/tmp/switch_test_enc_e2e_empty.py";
+    TempFileGuard guard{{input_path, output_path}};
 
-    auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
-    auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
+    // F09: Use correct-length keys for each AES variant
+    auto key128 = switch_encrypt::hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+    auto key192 = switch_encrypt::hex_to_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
+    auto key256 = switch_encrypt::hex_to_bytes(AES256_KEY);
+    auto iv     = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
 
-    for (auto type : {switch_encrypt::EncryptType::Aes128,
-                      switch_encrypt::EncryptType::Aes192,
-                      switch_encrypt::EncryptType::Aes256}) {
+    struct TestCase {
+        switch_encrypt::EncryptType type;
+        const std::vector<uint8_t>& key;
+    };
+
+    std::vector<TestCase> tests = {
+        {switch_encrypt::EncryptType::Aes128, *key128},
+        {switch_encrypt::EncryptType::Aes192, *key192},
+        {switch_encrypt::EncryptType::Aes256, *key256},
+    };
+
+    for (auto& tc : tests) {
         std::string error;
-        bool ok = switch_encrypt::encrypt_file(type, input_path, output_path,
-                                                *key, *iv, error);
-        INFO("error for ", switch_encrypt::encrypt_type_name(type), ": ", error);
+        bool ok = switch_encrypt::encrypt_file(tc.type, input_path, output_path,
+                                                tc.key, *iv, error);
+        INFO("error for ", switch_encrypt::encrypt_type_name(tc.type), ": ", error);
         REQUIRE(ok == true);
 
-        // Run — should exit 0 with no output
+        // F09: Run — should exit 0 with no output
         std::string cmd = "python3 " + output_path + " 2>&1";
-        int rc = std::system(cmd.c_str());
+        FILE* pipe = popen(cmd.c_str(), "r");
+        REQUIRE(pipe != nullptr);
+        char buf[256] = {};
+        std::string py_output;
+        while (fgets(buf, sizeof(buf), pipe)) py_output += buf;
+        int rc = pclose(pipe);
+        INFO("python output for ", switch_encrypt::encrypt_type_name(tc.type), ": ", py_output);
         CHECK(WEXITSTATUS(rc) == 0);
+        CHECK(py_output.empty());
     }
-
-    std::remove(input_path.c_str());
-    std::remove(output_path.c_str());
 }
 
 TEST_CASE("encrypt_file e2e: nonexistent input path fails") {

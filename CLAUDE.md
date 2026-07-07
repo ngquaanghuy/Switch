@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Switch
 
-Switch is a Python code protection tool built in C++17. It reads `.py` files, encodes the source into a self-decodable Python wrapper (`exec(base64.b64decode(...))` style), producing a `.py` file that runs identically to the original. Future features (`protect`, `build`) are stubbed but not yet implemented.
+Switch is a Python code protection tool built in C++17. It reads `.py` files and produces self-executing Python wrappers — either encoded (base16/32/58/62/64) or encrypted (AES-128/192/256-CBC). Future features (`protect`, `build`) are stubbed but not yet implemented.
 
 ## Build
 
@@ -13,7 +13,8 @@ cmake -G Ninja -B build && cmake --build build
 # Binary: build/switch
 ```
 
-Requires: CMake ≥3.21, Ninja, C++17 compiler. Python 3.14+ optional (not required for current encode features).
+Requires: CMake ≥3.21, Ninja, C++17 compiler, **OpenSSL dev** (`libssl-dev` / `openssl-devel`).
+Python 3.14+ optional (not required for current features). Encrypted output requires `pip install cryptography`.
 
 ## Run Tests
 
@@ -21,11 +22,13 @@ Requires: CMake ≥3.21, Ninja, C++17 compiler. Python 3.14+ optional (not requi
 ctest --test-dir build
 ```
 
-Two test binaries:
-- `build/tests/test_encode` — pure encoding logic (doctest, links only `encode.cpp`)
-- `build/tests/test_cli_encode` — CLI parsing + end-to-end encode_file (runs encoded output with `python3`, so Python must be installed)
+Four test binaries:
+- `build/tests/test_encode` — encoding logic unit tests (doctest, links `encode.cpp`)
+- `build/tests/test_cli_encode` — CLI parsing + encoding e2e (runs output with `python3`)
+- `build/tests/test_encrypt` — AES encryption unit tests (links `encrypt.cpp`, OpenSSL)
+- `build/tests/test_cli_encrypt` — CLI parsing + AES encryption e2e (runs output with `python3`)
 
-Run a single binary: `./build/tests/test_encode`
+Run a single binary: `./build/tests/test_encrypt`
 
 ## Architecture
 
@@ -33,22 +36,26 @@ Run a single binary: `./build/tests/test_encode`
 include/switch/
   cli.hpp       — Command enum, Args struct, parse/print declarations
   encode.hpp    — EncodeType enum, encode API, make_python_wrapper, encode_file
+  encrypt.hpp   — EncryptType enum, AES encrypt/decrypt API, encrypt_file, make_python_decrypt_wrapper
   version.hpp   — version macros (SWITCH_VERSION_STRING, SWITCH_PYTHON_MIN_*)
 
 src/
-  main.cpp      — dispatch: parse args → route to Help/Version/EncodeList/Encode
+  main.cpp      — dispatch: parse args → route to Help/Version/EncodeList/Encode/Encrypt
   cli.cpp       — arg parsing (manual argv loop, no library), help/version printing
   encode.cpp    — all encoding implementations + Python wrapper generation + file I/O
+  encrypt.cpp   — AES-CBC encrypt/decrypt (OpenSSL EVP), PKCS7 padding, Python decrypt wrapper
 ```
 
-**Namespace split**: `switch_cli` (CLI parsing/display) and `switch_encode` (encoding logic).
+**Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (AES encryption).
 
 ## Key Design Decisions
 
 - **No arg-parsing library** — hand-rolled `parse()` returns `std::optional<Args>`, printing errors to stderr on failure (returns `std::nullopt`).
-- **Base58/Base62 use bigint division** — `bigint_divmod()` helper divides big-endian byte vectors by the base in-place, collecting remainders. This handles arbitrary-size inputs without bignum libraries.
-- **Python wrapper strategy** — `make_python_wrapper()` generates a self-contained `.py` file: base16/32/64 use Python's `base64` stdlib; base58/62 embed a pure-Python decoder using `int.to_bytes()`.
-- **`encode_file()` is the file-level API** — reads input, calls `encode()`, wraps with `make_python_wrapper()`, writes output. Returns `false` with error_msg on failure.
+- **Base58/Base62 use bigint division** — `bigint_divmod()` helper divides big-endian byte vectors by the base in-place, collecting remainders.
+- **OpenSSL for AES** — uses EVP API (`EVP_aes_{128,192,256}_cbc()`), with `EVP_CIPHER_CTX_set_padding(ctx, 0)` to disable auto-padding (we do our own PKCS7).
+- **Python wrapper strategy** — encode wrappers use Python's `base64` stdlib; encrypt wrappers use `cryptography` library with error handling (import check, UTF-8 decode guard).
+- **Key length validation** — CLI validates key hex length matches AES variant before calling `encrypt_file()`. `encrypt()`/`decrypt()` also validate internally.
+- **`encode_file()` / `encrypt_file()` are file-level APIs** — read input, transform, wrap in Python, write output. Return `false` with error_msg on failure.
 
 ## Current CLI Commands
 
@@ -57,12 +64,13 @@ src/
 | `--help` / `-h` | Working | |
 | `--version` / `-v` | Working | Shows platform + compiler |
 | `--encode <type> <file> [-o <out>]` | Working | 5 types: base16, base32, base58, base62, base64 |
+| `--encrypt <type> <file> --key <hex> [--iv <hex>] [-o <out>]` | Working | 3 types: aes-128, aes-192, aes-256. IV auto-generated if omitted. |
 | `--encode-list` | Working | |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |
 
-Default output path when `-o` is omitted: `<input>.<encodename>` (e.g. `input.py` → `input.py.base64`).
+Default output path: `<input>.<encodename>` for encode, `<input>.<encname>.py` for encrypt.
 
 ## Cross-Platform Notes
 
-Platform detection uses preprocessor defines (`SWITCH_PLATFORM_WINDOWS/MACOS/LINUX`). Linux links `dl` and `pthread`. The encode logic itself is platform-independent.
+Platform detection uses preprocessor defines (`SWITCH_PLATFORM_WINDOWS/MACOS/LINUX`). Linux links `dl` and `pthread`. OpenSSL is required on all platforms. The encode/encrypt logic itself is platform-independent.

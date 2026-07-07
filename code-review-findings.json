@@ -1,0 +1,137 @@
+[
+  {
+    "id": "F01",
+    "severity": "high",
+    "file": "src/main.cpp",
+    "line": 77,
+    "title": "Key length không kiểm tra với EncryptType",
+    "summary": "Gõ --encrypt aes-128 --key <key-256-bit> không báo lỗi. hex_to_bytes() trả về vector 32 byte, main.cpp không kiểm tra key.size() == 16 cho AES-128. OpenSSL 3.x: EVP_EncryptInit_ex lỗi → báo 'encryption failed' mơ hồ. OpenSSL 1.x: tự cắt 16 byte đầu → hành vi phụ thuộc phiên bản.",
+    "fix": "Sau khi hex_to_bytes thành công, kiểm tra key->size() khớp với số byte kỳ vọng cho encrypt_type (16/24/32). Nếu không khớp → in lỗi rõ ràng và thoát."
+  },
+  {
+    "id": "F02",
+    "severity": "high",
+    "file": "src/encrypt.cpp",
+    "line": 320,
+    "title": "key_trimmed có thể undefined behavior",
+    "summary": "Dòng `key.begin() + key_len` không kiểm tra key.size() >= key_len. Nếu key ngắn hơn kỳ vọng, iterator trỏ quá end() → UB trong vector range constructor.",
+    "fix": "Thêm assert hoặc kiểm tra key.size() >= key_len trước khi tạo key_trimmed."
+  },
+  {
+    "id": "F03",
+    "severity": "high",
+    "file": "src/main.cpp",
+    "line": 141,
+    "title": "OPENSSL_thread_stop() là dead code",
+    "summary": "Tất cả case trong switch (Help/Version/EncodeList/Encode/Encrypt/Protect/Build/Unknown) đều có return trước dòng 141. Câu dọn dẹp OpenSSL không bao giờ chạy.",
+    "fix": "Di chuyển OPENSSL_thread_stop() vào cuối mỗi case return, hoặc dùng std::atexit."
+  },
+  {
+    "id": "F04",
+    "severity": "high",
+    "file": "src/encrypt.cpp",
+    "line": 37,
+    "title": "hex_to_bytes trả rỗng thay vì nullopt cho chuỗi rỗng",
+    "summary": "hex_to_bytes('') trả về vector rỗng (có giá trị trong optional). Kiểm tra `if (!key)` ở main.cpp:77 vẫn pass. Key rỗng到达 encrypt_file() → OpenSSL lỗi, báo sai.",
+    "fix": "Trả nullopt khi hex rỗng: `if (hex.empty()) return std::nullopt;`"
+  },
+  {
+    "id": "F05",
+    "severity": "medium",
+    "file": "src/encrypt.cpp",
+    "line": 125,
+    "title": "encrypt()/decrypt() khôngvalidate độ dài key",
+    "summary": "Hai function nhận key bất kỳ độ dài nào, truyền thẳng cho OpenSSL. OpenSSL 3.x từ chối, OpenSSL 1.x tự cắt. Không có validation ở tầng function.",
+    "fix": "Thêm kiểm tra key.size() == (16/24/32 tùy type) đầu hàm encrypt() và decrypt()."
+  },
+  {
+    "id": "F06",
+    "severity": "medium",
+    "file": "src/encrypt.cpp",
+    "line": 272,
+    "title": "Python wrapper không xử lý lỗi",
+    "summary": "File .py sinh ra import `cryptography` không try/except. Nếu chưa cài → ModuleNotFoundError thô. Payload lỗi UTF-8 → UnicodeDecodeError thô. Không có hướng dẫn cho người dùng.",
+    "fix": "Bọc import trong try/except với thông báo hướng dẫn cài đặt. Xử lý decode lỗi UTF-8."
+  },
+  {
+    "id": "F07",
+    "severity": "medium",
+    "file": "src/encrypt.cpp",
+    "line": 306,
+    "title": "encrypt_file bỏ qua lỗi khi input rỗng",
+    "summary": "Kiểm tra `ciphertext.empty() && !data.empty()` — nếu encrypt() lỗi trên file rỗng, cả hai đều đúng → bỏ qua lỗi, trả true, ghi file Python wrapper hỏng.",
+    "fix": "Tách biệt kiểm tra lỗi encrypt() với kiểm tra input rỗng."
+  },
+  {
+    "id": "F08",
+    "severity": "low",
+    "file": "tests/test_cli_encrypt.cpp",
+    "line": 285,
+    "title": "File tạm leak khi REQUIRE fail",
+    "summary": "REQUIRE(ok==true) dùng doctest abort-on-failure. Nếu fail, std::remove() phía sau không chạy → file tạm tồn đọng trong /tmp.",
+    "fix": "Dùng CHECK() thay REQUIRE(), hoặc dùng scope guard/RAII cho cleanup."
+  },
+  {
+    "id": "F09",
+    "severity": "low",
+    "file": "tests/test_cli_encrypt.cpp",
+    "line": 300,
+    "title": "Test empty input chỉ kiểm tra exit code",
+    "summary": "Test chỉ CHECK(WEXITSTATUS(rc)==0), không kiểm tra output rỗng. Nếu giải mã thất bại mà vẫn exit 0 → test sai.",
+    "fix": "Thêm CHECK(py_output.empty()) hoặc kiểm tra output cụ thể."
+  },
+  {
+    "id": "F10",
+    "severity": "cleanup",
+    "file": "CLAUDE.md",
+    "line": 16,
+    "title": "CLAUDE.md chưa cập nhật cho OpenSSL và --encrypt",
+    "summary": "Không ghi OpenSSL trong build requirements, không có encrypt.hpp trong architecture, không có --encrypt trong CLI Commands, namespace switch_encrypt chưa liệt kê.",
+    "fix": "Cập nhật CLAUDE.md: thêm OpenSSL dependency, encrypt.hpp, --encrypt/--key/--iv, switch_encrypt namespace."
+  },
+  {
+    "id": "F11",
+    "severity": "cleanup",
+    "file": "src/encrypt.cpp",
+    "line": 66,
+    "title": "parse_encrypt_type_from_key() là dead code",
+    "summary": "Được khai báo trong encrypt.hpp nhưng không có production call site nào. CLI parse type từ --encrypt argument, không từ key length.",
+    "fix": "Xóa function hoặc kết nối vào luồng parse thực tế."
+  },
+  {
+    "id": "F12",
+    "severity": "cleanup",
+    "file": "src/encrypt.cpp",
+    "line": 52,
+    "title": "bytes_to_hex() là dead code",
+    "summary": "Định nghĩa nhưng không được gọi từ bất kỳ source file nào. Không có trong header.",
+    "fix": "Xóa hoặc sử dụng nếu cần."
+  },
+  {
+    "id": "F13",
+    "severity": "cleanup",
+    "file": "src/encrypt.cpp",
+    "line": 131,
+    "title": "Trùng lặp chọn cipher trong encrypt() và decrypt()",
+    "summary": "Hai switch block giống hệt nhau mapping EncryptType → EVP_CIPHER. Thêm variant mới phải sửa cả hai.",
+    "fix": "Extract thành helper `get_evp_cipher(EncryptType)` dùng chung."
+  },
+  {
+    "id": "F14",
+    "severity": "cleanup",
+    "file": "src/encrypt.cpp",
+    "line": 221,
+    "title": "Trùng lặp base64_encode với encode.cpp",
+    "summary": "encrypt.cpp viết lại base64_encode trong anonymous namespace. encode.cpp đã có logic encoding tương tự. Hai implementation có thể diverge.",
+    "fix": "Dùng chung hàm base64 từ encode module hoặc extract thành shared utility."
+  },
+  {
+    "id": "F15",
+    "severity": "cleanup",
+    "file": "src/cli.cpp",
+    "line": 93,
+    "title": "--encrypt không consuming input file giống --encode",
+    "summary": "--encode (dòng 77) tự add next arg vào positional. --encrypt dựa vào catch-all fallback ở dòng 162. Cùng chức năng nhưng khác cách实现.",
+    "fix": "Thêm logic consume input file vào block --encode/--encrypt cho nhất quán."
+  }
+]

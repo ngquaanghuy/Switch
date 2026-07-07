@@ -110,6 +110,10 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 return std::nullopt;
             }
             args.cmd = Command::Encrypt;
+            // F15: Consume positional input file (consistent with --encode)
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                args.positional.emplace_back(argv[++i]);
+            }
             continue;
         }
 

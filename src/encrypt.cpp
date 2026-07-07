@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -26,15 +25,11 @@ int hex_digit(char c) {
     return -1;
 }
 
-char to_hex_digit(uint8_t nibble) {
-    return "0123456789abcdef"[nibble & 0x0F];
-}
-
 } // anonymous namespace
 
 std::optional<std::vector<uint8_t>> hex_to_bytes(std::string_view hex) {
     if (hex.size() % 2 != 0) return std::nullopt;
-    if (hex.empty()) return std::vector<uint8_t>();
+    if (hex.empty()) return std::nullopt; // F04: empty hex is invalid
 
     std::vector<uint8_t> bytes;
     bytes.reserve(hex.size() / 2);
@@ -49,29 +44,9 @@ std::optional<std::vector<uint8_t>> hex_to_bytes(std::string_view hex) {
     return bytes;
 }
 
-std::string bytes_to_hex(const std::vector<uint8_t>& bytes) {
-    std::string result;
-    result.reserve(bytes.size() * 2);
-    for (uint8_t b : bytes) {
-        result.push_back(to_hex_digit(b >> 4));
-        result.push_back(to_hex_digit(b & 0x0F));
-    }
-    return result;
-}
-
 // ---------------------------------------------------------------------------
 // EncryptType resolution
 // ---------------------------------------------------------------------------
-
-std::optional<EncryptType> parse_encrypt_type_from_key(std::string_view hex_key) {
-    // key length in hex chars: 32 → 16 bytes (AES-128), 48 → 24 (AES-192), 64 → 32 (AES-256)
-    switch (hex_key.size()) {
-    case 32: return EncryptType::Aes128;
-    case 48: return EncryptType::Aes192;
-    case 64: return EncryptType::Aes256;
-    default: return std::nullopt;
-    }
-}
 
 std::string encrypt_type_name(EncryptType type) {
     switch (type) {
@@ -81,6 +56,33 @@ std::string encrypt_type_name(EncryptType type) {
     }
     return "unknown";
 }
+
+// Expected key byte count for each AES variant
+static size_t expected_key_len(EncryptType type) {
+    switch (type) {
+    case EncryptType::Aes128: return 16;
+    case EncryptType::Aes192: return 24;
+    case EncryptType::Aes256: return 32;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// F13: Shared cipher selection — eliminates duplication between encrypt/decrypt
+// ---------------------------------------------------------------------------
+
+namespace {
+
+const EVP_CIPHER* get_evp_cipher(EncryptType type) {
+    switch (type) {
+    case EncryptType::Aes128: return EVP_aes_128_cbc();
+    case EncryptType::Aes192: return EVP_aes_192_cbc();
+    case EncryptType::Aes256: return EVP_aes_256_cbc();
+    }
+    return nullptr;
+}
+
+} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // PKCS7 Padding
@@ -126,13 +128,11 @@ std::vector<uint8_t> encrypt(EncryptType type,
                               const std::vector<uint8_t>& plaintext,
                               const std::vector<uint8_t>& key,
                               const std::vector<uint8_t>& iv) {
-    // Select cipher based on key size
-    const EVP_CIPHER* cipher = nullptr;
-    switch (type) {
-    case EncryptType::Aes128: cipher = EVP_aes_128_cbc(); break;
-    case EncryptType::Aes192: cipher = EVP_aes_192_cbc(); break;
-    case EncryptType::Aes256: cipher = EVP_aes_256_cbc(); break;
-    }
+    // F05: Validate key length
+    if (key.size() != expected_key_len(type)) return {};
+    if (iv.size() != 16) return {};
+
+    const EVP_CIPHER* cipher = get_evp_cipher(type);
     if (!cipher) return {};
 
     // PKCS7 pad plaintext
@@ -165,12 +165,11 @@ std::vector<uint8_t> decrypt(EncryptType type,
                               const std::vector<uint8_t>& ciphertext,
                               const std::vector<uint8_t>& key,
                               const std::vector<uint8_t>& iv) {
-    const EVP_CIPHER* cipher = nullptr;
-    switch (type) {
-    case EncryptType::Aes128: cipher = EVP_aes_128_cbc(); break;
-    case EncryptType::Aes192: cipher = EVP_aes_192_cbc(); break;
-    case EncryptType::Aes256: cipher = EVP_aes_256_cbc(); break;
-    }
+    // F05: Validate key length
+    if (key.size() != expected_key_len(type)) return {};
+    if (iv.size() != 16) return {};
+
+    const EVP_CIPHER* cipher = get_evp_cipher(type);
     if (!cipher) return {};
 
     std::vector<uint8_t> plaintext(ciphertext.size());
@@ -243,7 +242,7 @@ std::string base64_encode(const std::vector<uint8_t>& data) {
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// Python wrapper generator — self-decryptable output scripts
+// F06: Python wrapper generator — with error handling
 // ---------------------------------------------------------------------------
 
 std::string make_python_decrypt_wrapper(EncryptType type,
@@ -253,10 +252,17 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     std::string w;
     w += "# Encrypted by Switch (" + encrypt_type_name(type) + ") — run with: python3 this_file.py\n";
     w += "# Requires: pip install cryptography\n";
-    w += "import base64\n";
-    w += "from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
-    w += "from cryptography.hazmat.primitives import padding as sym_padding\n";
-    w += "from cryptography.hazmat.backends import default_backend\n";
+    w += "import sys\n";
+    w += "\n";
+    w += "try:\n";
+    w += "    import base64\n";
+    w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
+    w += "    from cryptography.hazmat.primitives import padding as sym_padding\n";
+    w += "    from cryptography.hazmat.backends import default_backend\n";
+    w += "except ImportError:\n";
+    w += "    print('Error: \"cryptography\" package not found.', file=sys.stderr)\n";
+    w += "    print('Install it with: pip install cryptography', file=sys.stderr)\n";
+    w += "    sys.exit(1)\n";
     w += "\n";
     w += "_ct = base64.b64decode(\"" + b64_ciphertext + "\")\n";
     w += "_key = base64.b64decode(\"" + b64_key + "\")\n";
@@ -269,12 +275,17 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     w += "_unpad = sym_padding.PKCS7(128).unpadder()\n";
     w += "_pt = _unpad.update(_pt) + _unpad.finalize()\n";
     w += "\n";
-    w += "exec(_pt.decode('utf-8'))\n";
+    w += "try:\n";
+    w += "    exec(_pt.decode('utf-8'))\n";
+    w += "except UnicodeDecodeError:\n";
+    w += "    print('Error: decrypted data is not valid UTF-8.', file=sys.stderr)\n";
+    w += "    print('The file may have been encrypted with a different key.', file=sys.stderr)\n";
+    w += "    sys.exit(1)\n";
     return w;
 }
 
 // ---------------------------------------------------------------------------
-// File-to-file encrypt with validation
+// F07: File-to-file encrypt with validation
 // ---------------------------------------------------------------------------
 
 bool encrypt_file(EncryptType type,
@@ -308,25 +319,24 @@ bool encrypt_file(EncryptType type,
         return false;
     }
 
-    // 3. Base64-encode ciphertext, key, and IV for embedding
-    // Only embed the exact number of key bytes needed for the AES variant
-    // (Python's algorithms.AES() auto-detects key size → wrong variant if too long)
-    size_t key_len = 0;
-    switch (type) {
-    case EncryptType::Aes128: key_len = 16; break;
-    case EncryptType::Aes192: key_len = 24; break;
-    case EncryptType::Aes256: key_len = 32; break;
+    // 3. F02: Safe key trim — validated key size is guaranteed by caller,
+    // but guard defensively to prevent UB from iterator past end()
+    size_t key_len = expected_key_len(type);
+    if (key.size() < key_len) {
+        error_msg = "key too short for " + encrypt_type_name(type);
+        return false;
     }
     std::vector<uint8_t> key_trimmed(key.begin(), key.begin() + key_len);
 
+    // 4. Base64-encode ciphertext, key, and IV for embedding
     std::string b64_ct   = base64_encode(ciphertext);
     std::string b64_key  = base64_encode(key_trimmed);
     std::string b64_iv   = base64_encode(iv);
 
-    // 4. Generate self-decryptable Python wrapper
+    // 5. Generate self-decryptable Python wrapper
     std::string output = make_python_decrypt_wrapper(type, b64_ct, b64_key, b64_iv);
 
-    // 5. Write output
+    // 6. Write output
     std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
     if (!out) {
         error_msg = "cannot write to output file '" + output_path
