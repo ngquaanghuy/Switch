@@ -8,6 +8,8 @@
 /home/ngquanghuy/Switch/build/CMakeFiles/install/strip.dir
 /home/ngquanghuy/Switch/build/tests/CMakeFiles/test_encode.dir
 /home/ngquanghuy/Switch/build/tests/CMakeFiles/test_cli_encode.dir
+/home/ngquanghuy/Switch/build/tests/CMakeFiles/test_encrypt.dir
+/home/ngquanghuy/Switch/build/tests/CMakeFiles/test_cli_encrypt.dir
 /home/ngquanghuy/Switch/build/tests/CMakeFiles/test.dir
 /home/ngquanghuy/Switch/build/tests/CMakeFiles/edit_cache.dir
 /home/ngquanghuy/Switch/build/tests/CMakeFiles/rebuild_cache.dir

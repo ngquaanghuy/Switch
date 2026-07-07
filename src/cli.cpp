@@ -90,6 +90,49 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --encrypt <type>
+        if (arg == "--encrypt") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --encrypt requires an encryption type (aes-128, aes-192, aes-256)\n";
+                return std::nullopt;
+            }
+            std::string_view type_str{argv[++i]};
+            // Accept aes-128, aes-192, aes-256 or aes128, aes192, aes256
+            if (type_str == "aes-128" || type_str == "aes128" || type_str == "AES-128" || type_str == "AES128") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes128;
+            } else if (type_str == "aes-192" || type_str == "aes192" || type_str == "AES-192" || type_str == "AES192") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes192;
+            } else if (type_str == "aes-256" || type_str == "aes256" || type_str == "AES-256" || type_str == "AES256") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes256;
+            } else {
+                std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
+                          << "Valid types: aes-128, aes-192, aes-256\n";
+                return std::nullopt;
+            }
+            args.cmd = Command::Encrypt;
+            continue;
+        }
+
+        // --key <hex>
+        if (arg == "--key") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --key requires a hex-encoded key string\n";
+                return std::nullopt;
+            }
+            args.encrypt_key = argv[++i];
+            continue;
+        }
+
+        // --iv <hex>
+        if (arg == "--iv") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --iv requires a hex-encoded IV string\n";
+                return std::nullopt;
+            }
+            args.encrypt_iv = argv[++i];
+            continue;
+        }
+
         // Future subcommands — parsed but not yet functional
         if (arg == "protect") {
             args.cmd = Command::Protect;
@@ -149,7 +192,13 @@ void print_help() {
               << "  --encode <type>    Encode input .py into runnable encoded .py\n"
               << "                     Types: " << switch_encode::all_encode_names() << "\n"
               << "                     Output runs with: python output.py\n"
-              << "  -o <file>          Output file path (used with --encode)\n"
+              << "  --encrypt <type>   Encrypt input .py with AES-CBC into runnable .py\n"
+              << "                     Types: aes-128, aes-192, aes-256\n"
+              << "                     Requires: --key <hex> (and optionally --iv <hex>)\n"
+              << "                     Output runs with: python output.py\n"
+              << "  --key <hex>        Hex-encoded encryption key (required with --encrypt)\n"
+              << "  --iv <hex>         Hex-encoded IV, 16 bytes (optional, auto-generated)\n"
+              << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"
               << "\n"
               << "COMMANDS (planned)\n"
@@ -161,9 +210,11 @@ void print_help() {
               << "  switch --version\n"
               << "  switch --encode-list\n"
               << "  switch --encode base32 input.py -o output.py\n"
+              << "  switch --encrypt aes-256 input.py --key <64-hex-chars> -o output.py\n"
               << "  python output.py                 # runs original code\n"
               << "\n"
-              << "Python 3.14+ required for runtime features.\n";
+              << "Python 3.14+ required for runtime features.\n"
+              << "Python 'cryptography' package required for --encrypt output.\n";
 }
 
 // ---------------------------------------------------------------------------

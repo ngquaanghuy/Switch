@@ -1,6 +1,7 @@
 #pragma once
 
 #include "switch/encode.hpp"
+#include "switch/encrypt.hpp"
 
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@ enum class Command {
     Build,
     Encode,
     EncodeList,
+    Encrypt,
     Unknown,
 };
 
@@ -26,6 +28,9 @@ struct Args {
     bool show_version = false;
     bool encode_list  = false;               // --encode-list flag
     std::optional<switch_encode::EncodeType> encode_type; // --encode <type>
+    std::optional<switch_encrypt::EncryptType> encrypt_type; // --encrypt <type>
+    std::optional<std::string> encrypt_key;  // --key <hex>
+    std::optional<std::string> encrypt_iv;   // --iv <hex>
     std::optional<std::string> output_file;   // -o <output>
 };
 

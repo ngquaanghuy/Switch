@@ -1,3 +1,5 @@
-test_encode 4 0.00220387
-test_cli_encode 4 0.0865674
+test_encode 3 0.000608705
+test_cli_encode 3 0.0714123
+test_encrypt 3 0.00129596
+test_cli_encrypt 1 0.33877
 ---

@@ -31,6 +31,12 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
+# OpenSSL (for AES encryption)
+# ---------------------------------------------------------------------------
+find_package(OpenSSL REQUIRED)
+message(STATUS "Found OpenSSL ${OPENSSL_VERSION} at ${OPENSSL_INCLUDE_DIR}")
+
+# ---------------------------------------------------------------------------
 # Python 3.14 detection (prepare for future use)
 # ---------------------------------------------------------------------------
 find_package(Python3 3.14 EXACT QUIET)
@@ -50,11 +56,13 @@ set(SOURCES
     src/main.cpp
     src/cli.cpp
     src/encode.cpp
+    src/encrypt.cpp
 )
 
 set(HEADERS
     include/switch/cli.hpp
     include/switch/encode.hpp
+    include/switch/encrypt.hpp
     include/switch/version.hpp
 )
 
@@ -65,7 +73,7 @@ target_include_directories(switch PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(switch PRIVATE ${PLATFORM_LIBS})
+target_link_libraries(switch PRIVATE ${PLATFORM_LIBS} OpenSSL::Crypto)
 
 # Python linking (conditional, when protect/build features are added)
 if(Python3_FOUND AND Python3_INCLUDE_DIRS)
