@@ -8,11 +8,12 @@
 
 namespace switch_encrypt {
 
-// Supported AES key sizes — determined by key length.
+// Supported encryption types.
 enum class EncryptType {
     Aes128,
     Aes192,
     Aes256,
+    ChaCha20,   // ChaCha20-Poly1305 AEAD (IETF, 12-byte nonce)
 };
 
 // Convert hex string to byte vector.
@@ -22,23 +23,45 @@ std::optional<std::vector<uint8_t>> hex_to_bytes(std::string_view hex);
 // Get human-readable name for an encryption type.
 std::string encrypt_type_name(EncryptType type);
 
-// Encrypt plaintext with AES-CBC + PKCS7 padding.
-// key must be 16/24/32 bytes. iv must be 16 bytes.
-// Returns ciphertext (encrypted bytes, including PKCS7 padding).
+// Get comma-separated list of all supported encryption type names.
+std::string all_encrypt_names();
+
+// Get expected key byte count for each encryption type.
+size_t expected_key_len(EncryptType type);
+
+// Get expected nonce/IV byte count for each encryption type.
+// Returns 16 for AES (IV), 12 for ChaCha20 (IETF nonce).
+size_t expected_nonce_len(EncryptType type);
+
+// Check if type is a stream cipher (ChaCha20/XChaCha20).
+bool is_stream_cipher(EncryptType type);
+
+// Get the library name used for encryption.
+std::string encrypt_library_name(EncryptType type);
+
+// Encrypt plaintext.
+// AES: AES-CBC + PKCS7 padding. key=16/24/32 bytes, iv=16 bytes.
+// ChaCha20: raw stream cipher (no padding, no MAC). key=32 bytes, nonce=12 bytes.
+// XChaCha20: AEAD with Poly1305 MAC. key=32 bytes, nonce=24 bytes. Ciphertext = plaintext + 16-byte MAC.
+// Returns ciphertext. Empty on error.
 std::vector<uint8_t> encrypt(EncryptType type,
                               const std::vector<uint8_t>& plaintext,
                               const std::vector<uint8_t>& key,
-                              const std::vector<uint8_t>& iv);
+                              const std::vector<uint8_t>& iv_or_nonce);
 
-// Decrypt ciphertext with AES-CBC + PKCS7 unpadding.
+// Decrypt ciphertext.
+// AES: AES-CBC + PKCS7 unpadding.
+// ChaCha20: XOR again (stream cipher).
+// XChaCha20: AEAD decrypt with MAC verification.
 // Returns plaintext bytes. Empty on error.
 std::vector<uint8_t> decrypt(EncryptType type,
                               const std::vector<uint8_t>& ciphertext,
                               const std::vector<uint8_t>& key,
-                              const std::vector<uint8_t>& iv);
+                              const std::vector<uint8_t>& iv_or_nonce);
 
-// Generate 16 random bytes for IV using OpenSSL RAND.
+// Generate random IV (16 bytes for AES) or nonce (12/24 bytes for ChaCha20/XChaCha20).
 std::vector<uint8_t> generate_random_iv();
+std::vector<uint8_t> generate_random_nonce(size_t len);
 
 // Wrap encrypted payload into a self-decryptable Python script.
 // The returned string is valid Python that, when run with `python3`,
@@ -47,16 +70,16 @@ std::vector<uint8_t> generate_random_iv();
 std::string make_python_decrypt_wrapper(EncryptType type,
                                          const std::string& b64_ciphertext,
                                          const std::string& b64_key,
-                                         const std::string& b64_iv);
+                                         const std::string& b64_iv_or_nonce);
 
-// Read input_path, encrypt with given type/key/iv, write self-decrypting
+// Read input_path, encrypt with given type/key/iv_or_nonce, write self-decrypting
 // Python wrapper to output_path.
 // Returns false on error; error_msg is populated with a human-readable message.
 bool encrypt_file(EncryptType type,
                   const std::string& input_path,
                   const std::string& output_path,
                   const std::vector<uint8_t>& key,
-                  const std::vector<uint8_t>& iv,
+                  const std::vector<uint8_t>& iv_or_nonce,
                   std::string& error_msg);
 
 } // namespace switch_encrypt

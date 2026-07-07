@@ -54,6 +54,13 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --encrypt-list
+        if (is_flag(arg, "", "--encrypt-list")) {
+            args.encrypt_list = true;
+            args.cmd = Command::EncryptList;
+            continue;
+        }
+
         // --encode <type>
         if (arg == "--encode") {
             if (i + 1 >= argc) {
@@ -93,20 +100,23 @@ std::optional<Args> parse(int argc, const char* argv[]) {
         // --encrypt <type>
         if (arg == "--encrypt") {
             if (i + 1 >= argc) {
-                std::cerr << "switch: --encrypt requires an encryption type (aes-128, aes-192, aes-256)\n";
+                std::cerr << "switch: --encrypt requires an encryption type\n";
                 return std::nullopt;
             }
             std::string_view type_str{argv[++i]};
-            // Accept aes-128, aes-192, aes-256 or aes128, aes192, aes256
+            // AES variants
             if (type_str == "aes-128" || type_str == "aes128" || type_str == "AES-128" || type_str == "AES128") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes128;
             } else if (type_str == "aes-192" || type_str == "aes192" || type_str == "AES-192" || type_str == "AES192") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes192;
             } else if (type_str == "aes-256" || type_str == "aes256" || type_str == "AES-256" || type_str == "AES256") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes256;
+            // ChaCha20-Poly1305 AEAD (IETF, 12-byte nonce, libsodium backend)
+            } else if (type_str == "chacha20" || type_str == "ChaCha20" || type_str == "CHACHA20") {
+                args.encrypt_type = switch_encrypt::EncryptType::ChaCha20;
             } else {
                 std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
-                          << "Valid types: aes-128, aes-192, aes-256\n";
+                          << "Valid types: aes-128, aes-192, aes-256, chacha20\n";
                 return std::nullopt;
             }
             args.cmd = Command::Encrypt;
@@ -134,6 +144,16 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 return std::nullopt;
             }
             args.encrypt_iv = argv[++i];
+            continue;
+        }
+
+        // --nonce <hex> (for ChaCha20/XChaCha20)
+        if (arg == "--nonce") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --nonce requires a hex-encoded nonce string\n";
+                return std::nullopt;
+            }
+            args.encrypt_nonce = argv[++i];
             continue;
         }
 
@@ -196,14 +216,18 @@ void print_help() {
               << "  --encode <type>    Encode input .py into runnable encoded .py\n"
               << "                     Types: " << switch_encode::all_encode_names() << "\n"
               << "                     Output runs with: python output.py\n"
-              << "  --encrypt <type>   Encrypt input .py with AES-CBC into runnable .py\n"
-              << "                     Types: aes-128, aes-192, aes-256\n"
-              << "                     Requires: --key <hex> (and optionally --iv <hex>)\n"
+              << "  --encrypt <type>   Encrypt input .py into runnable encrypted .py\n"
+              << "                     Types: aes-128, aes-192, aes-256, chacha20\n"
+              << "                     Requires: --key <hex>\n"
+              << "                     AES: --iv <hex> (optional, auto-generated)\n"
+              << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"
               << "                     Output runs with: python output.py\n"
               << "  --key <hex>        Hex-encoded encryption key (required with --encrypt)\n"
-              << "  --iv <hex>         Hex-encoded IV, 16 bytes (optional, auto-generated)\n"
+              << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES only, optional)\n"
+              << "  --nonce <hex>      Hex-encoded nonce, 12 bytes (ChaCha20 only, optional)\n"
               << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"
+              << "  --encrypt-list     List all supported encryption types\n"
               << "\n"
               << "COMMANDS (planned)\n"
               << "  protect <file>     Encrypt and protect Python source\n"
@@ -213,8 +237,10 @@ void print_help() {
               << "  switch --help\n"
               << "  switch --version\n"
               << "  switch --encode-list\n"
+              << "  switch --encrypt-list\n"
               << "  switch --encode base32 input.py -o output.py\n"
               << "  switch --encrypt aes-256 input.py --key <64-hex-chars> -o output.py\n"
+              << "  switch --encrypt chacha20 input.py --key <64-hex-chars> -o output.py\n"
               << "  python output.py                 # runs original code\n"
               << "\n"
               << "Python 3.14+ required for runtime features.\n"

@@ -62,6 +62,7 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes128) == "aes-128");
     CHECK(encrypt_type_name(EncryptType::Aes192) == "aes-192");
     CHECK(encrypt_type_name(EncryptType::Aes256) == "aes-256");
+    CHECK(encrypt_type_name(EncryptType::ChaCha20) == "chacha20");
 }
 
 // =========================================================================
@@ -198,6 +199,92 @@ TEST_CASE("aes-256: roundtrip with binary data") {
 }
 
 // =========================================================================
+// ChaCha20-Poly1305 encrypt / decrypt (IETF, 12-byte nonce)
+// =========================================================================
+
+TEST_CASE("chacha20: encrypt produces ciphertext with 16-byte MAC overhead") {
+    // 32-byte key, 12-byte nonce
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::ChaCha20, bytes("hello world"), key, nonce);
+    CHECK(!ct.empty());
+    CHECK(ct.size() == 11 + 16); // plaintext + 16-byte Poly1305 MAC
+}
+
+TEST_CASE("chacha20: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    std::string original = "ChaCha20-Poly1305 roundtrip test!";
+    auto ct = encrypt(EncryptType::ChaCha20, bytes(original), key, nonce);
+    auto pt = decrypt(EncryptType::ChaCha20, ct, key, nonce);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("chacha20: roundtrip with empty input") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::ChaCha20, {}, key, nonce);
+    CHECK(ct.size() == 16); // just the MAC tag
+    auto pt = decrypt(EncryptType::ChaCha20, ct, key, nonce);
+    CHECK(pt.empty());
+}
+
+TEST_CASE("chacha20: roundtrip with binary data") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    std::vector<uint8_t> data = {0x00, 0x01, 0x02, 0x7F, 0x80, 0xFE, 0xFF};
+    auto ct = encrypt(EncryptType::ChaCha20, data, key, nonce);
+    auto pt = decrypt(EncryptType::ChaCha20, ct, key, nonce);
+    CHECK(pt == data);
+}
+
+TEST_CASE("chacha20: different key → different ciphertext") {
+    auto nonce = from_hex("000000000000000000000000");
+    auto key1 = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto key2 = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto ct1 = encrypt(EncryptType::ChaCha20, bytes("test"), key1, nonce);
+    auto ct2 = encrypt(EncryptType::ChaCha20, bytes("test"), key2, nonce);
+    CHECK(ct1 != ct2);
+}
+
+TEST_CASE("chacha20: different nonce → different ciphertext") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce1 = from_hex("000000000000000000000000");
+    auto nonce2 = from_hex("111111111111111111111111");
+    auto ct1 = encrypt(EncryptType::ChaCha20, bytes("test"), key, nonce1);
+    auto ct2 = encrypt(EncryptType::ChaCha20, bytes("test"), key, nonce2);
+    CHECK(ct1 != ct2);
+}
+
+TEST_CASE("chacha20: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::ChaCha20, bytes("secret"), key, nonce);
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::ChaCha20, ct, wrong_key, nonce);
+    CHECK(pt.empty()); // MAC verification failed
+}
+
+TEST_CASE("chacha20: tampered ciphertext fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::ChaCha20, bytes("secret"), key, nonce);
+    CHECK(ct.size() > 0);
+    ct[0] ^= 0xFF; // tamper
+    auto pt = decrypt(EncryptType::ChaCha20, ct, key, nonce);
+    CHECK(pt.empty()); // MAC verification failed
+}
+
+TEST_CASE("chacha20: key validation") {
+    auto nonce = from_hex("000000000000000000000000");
+    // Wrong key length
+    auto short_key = from_hex("0001020304050607"); // 8 bytes, need 32
+    auto ct = encrypt(EncryptType::ChaCha20, bytes("test"), short_key, nonce);
+    CHECK(ct.empty());
+}
+
+// =========================================================================
 // generate_random_iv
 // =========================================================================
 
@@ -274,17 +361,20 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
     inp << "print('hello from switch encrypted')\n";
     inp.close();
 
-    struct TestCase { EncryptType type; std::vector<uint8_t> key; };
+    struct TestCase { EncryptType type; std::vector<uint8_t> key; std::vector<uint8_t> iv; };
+    auto key_chacha = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce_chacha = from_hex("000000000000000000000000");
     std::vector<TestCase> tests = {
-        {EncryptType::Aes128, key128},
-        {EncryptType::Aes192, key192},
-        {EncryptType::Aes256, key256},
+        {EncryptType::Aes128, key128, iv},
+        {EncryptType::Aes192, key192, iv},
+        {EncryptType::Aes256, key256, iv},
+        {EncryptType::ChaCha20, key_chacha, nonce_chacha},
     };
 
     for (auto& tc : tests) {
         std::string output_path = "/tmp/switch_test_enc_3types_" + encrypt_type_name(tc.type) + ".py";
         std::string error;
-        bool ok = encrypt_file(tc.type, input_path, output_path, tc.key, iv, error);
+        bool ok = encrypt_file(tc.type, input_path, output_path, tc.key, tc.iv, error);
         INFO("error for ", encrypt_type_name(tc.type), ": ", error);
         REQUIRE(ok == true);
 

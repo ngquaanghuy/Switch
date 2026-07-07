@@ -18,6 +18,7 @@ enum class Command {
     Encode,
     EncodeList,
     Encrypt,
+    EncryptList,
     Unknown,
 };
 
@@ -27,10 +28,12 @@ struct Args {
     bool show_help    = false;
     bool show_version = false;
     bool encode_list  = false;               // --encode-list flag
+    bool encrypt_list = false;               // --encrypt-list flag
     std::optional<switch_encode::EncodeType> encode_type; // --encode <type>
     std::optional<switch_encrypt::EncryptType> encrypt_type; // --encrypt <type>
     std::optional<std::string> encrypt_key;  // --key <hex>
-    std::optional<std::string> encrypt_iv;   // --iv <hex>
+    std::optional<std::string> encrypt_iv;   // --iv <hex> (AES)
+    std::optional<std::string> encrypt_nonce; // --nonce <hex> (ChaCha20/XChaCha20)
     std::optional<std::string> output_file;   // -o <output>
 };
 

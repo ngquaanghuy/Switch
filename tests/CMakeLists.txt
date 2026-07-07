@@ -47,7 +47,8 @@ target_include_directories(test_cli_encode PRIVATE
 )
 
 target_compile_features(test_cli_encode PRIVATE cxx_std_17)
-target_link_libraries(test_cli_encode PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_cli_encode PRIVATE OpenSSL::Crypto ${SODIUM})
+target_include_directories(test_cli_encode PRIVATE ${SODIUM_INCLUDE_DIR})
 
 add_test(NAME test_cli_encode COMMAND test_cli_encode)
 
@@ -66,7 +67,8 @@ target_include_directories(test_encrypt PRIVATE
 )
 
 target_compile_features(test_encrypt PRIVATE cxx_std_17)
-target_link_libraries(test_encrypt PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_encrypt PRIVATE OpenSSL::Crypto ${SODIUM})
+target_include_directories(test_encrypt PRIVATE ${SODIUM_INCLUDE_DIR})
 
 add_test(NAME test_encrypt COMMAND test_encrypt)
 
@@ -87,6 +89,7 @@ target_include_directories(test_cli_encrypt PRIVATE
 )
 
 target_compile_features(test_cli_encrypt PRIVATE cxx_std_17)
-target_link_libraries(test_cli_encrypt PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_cli_encrypt PRIVATE OpenSSL::Crypto ${SODIUM})
+target_include_directories(test_cli_encrypt PRIVATE ${SODIUM_INCLUDE_DIR})
 
 add_test(NAME test_cli_encrypt COMMAND test_cli_encrypt)

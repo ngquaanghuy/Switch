@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include <openssl/crypto.h>
+#include <sodium.h>
 
 // F03: Cleanup OpenSSL thread-local state on exit.
 // Using std::atexit ensures it runs after ALL return paths, not just fallthrough.
@@ -17,6 +18,12 @@ OpenSSLCleanup openssl_cleanup_instance;
 } // anonymous namespace
 
 int main(int argc, const char* argv[]) {
+    // Initialize libsodium (required for ChaCha20/XChaCha20)
+    if (sodium_init() < 0) {
+        std::cerr << "switch: failed to initialize libsodium\n";
+        return 1;
+    }
+
     auto args = switch_cli::parse(argc, argv);
     if (!args) {
         return 1; // parse error, message already printed
@@ -34,6 +41,11 @@ int main(int argc, const char* argv[]) {
     case switch_cli::Command::EncodeList:
         std::cout << "Supported encoding types:\n"
                   << "  " << switch_encode::all_encode_names() << "\n";
+        return 0;
+
+    case switch_cli::Command::EncryptList:
+        std::cout << "Supported encryption types:\n"
+                  << "  " << switch_encrypt::all_encrypt_names() << "\n";
         return 0;
 
     case switch_cli::Command::Encode: {
@@ -89,36 +101,50 @@ int main(int argc, const char* argv[]) {
             return 1;
         }
 
-        // F01: Validate key length matches AES variant
+        // Validate key length matches encryption type
         const auto& encrypt_type = *args->encrypt_type;
-        size_t expected = 0;
-        switch (encrypt_type) {
-        case switch_encrypt::EncryptType::Aes128: expected = 16; break;
-        case switch_encrypt::EncryptType::Aes192: expected = 24; break;
-        case switch_encrypt::EncryptType::Aes256: expected = 32; break;
-        }
-        if (key->size() != expected) {
-            std::cerr << "switch: key must be " << (expected * 2)
-                      << " hex characters (" << expected << " bytes) for "
+        size_t expected_key = switch_encrypt::expected_key_len(encrypt_type);
+        if (key->size() != expected_key) {
+            std::cerr << "switch: key must be " << (expected_key * 2)
+                      << " hex characters (" << expected_key << " bytes) for "
                       << switch_encrypt::encrypt_type_name(encrypt_type)
                       << ", got " << key->size() * 2 << " hex characters\n";
             return 1;
         }
 
-        // Parse or generate IV
-        std::vector<uint8_t> iv;
-        if (args->encrypt_iv) {
-            auto parsed_iv = switch_encrypt::hex_to_bytes(*args->encrypt_iv);
-            if (!parsed_iv || parsed_iv->size() != 16) {
-                std::cerr << "switch: IV must be exactly 16 bytes (32 hex characters)\n";
-                return 1;
+        // Parse or generate IV/nonce based on cipher type
+        std::vector<uint8_t> iv_or_nonce;
+        size_t expected_nonce = switch_encrypt::expected_nonce_len(encrypt_type);
+
+        if (switch_encrypt::is_stream_cipher(encrypt_type)) {
+            // ChaCha20/XChaCha20: use --nonce or generate random
+            if (args->encrypt_nonce) {
+                auto parsed = switch_encrypt::hex_to_bytes(*args->encrypt_nonce);
+                if (!parsed || parsed->size() != expected_nonce) {
+                    std::cerr << "switch: nonce must be " << (expected_nonce * 2)
+                              << " hex characters (" << expected_nonce << " bytes) for "
+                              << switch_encrypt::encrypt_type_name(encrypt_type) << "\n";
+                    return 1;
+                }
+                iv_or_nonce = *parsed;
+            } else {
+                iv_or_nonce = switch_encrypt::generate_random_nonce(expected_nonce);
             }
-            iv = *parsed_iv;
         } else {
-            iv = switch_encrypt::generate_random_iv();
-            if (iv.empty()) {
-                std::cerr << "switch: failed to generate random IV\n";
-                return 1;
+            // AES: use --iv or generate random 16-byte IV
+            if (args->encrypt_iv) {
+                auto parsed = switch_encrypt::hex_to_bytes(*args->encrypt_iv);
+                if (!parsed || parsed->size() != 16) {
+                    std::cerr << "switch: IV must be exactly 16 bytes (32 hex characters)\n";
+                    return 1;
+                }
+                iv_or_nonce = *parsed;
+            } else {
+                iv_or_nonce = switch_encrypt::generate_random_iv();
+                if (iv_or_nonce.empty()) {
+                    std::cerr << "switch: failed to generate random IV\n";
+                    return 1;
+                }
             }
         }
 
@@ -134,7 +160,7 @@ int main(int argc, const char* argv[]) {
 
         std::string error_msg;
         if (!switch_encrypt::encrypt_file(encrypt_type, input_path, output_path,
-                                           *key, iv, error_msg)) {
+                                           *key, iv_or_nonce, error_msg)) {
             std::cerr << "switch: encrypt failed: " << error_msg << "\n";
             return 1;
         }

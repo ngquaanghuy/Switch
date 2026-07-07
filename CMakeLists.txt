@@ -37,6 +37,16 @@ find_package(OpenSSL REQUIRED)
 message(STATUS "Found OpenSSL ${OPENSSL_VERSION} at ${OPENSSL_INCLUDE_DIR}")
 
 # ---------------------------------------------------------------------------
+# libsodium (for ChaCha20/XChaCha20)
+# ---------------------------------------------------------------------------
+find_library(SODIUM sodium)
+find_path(SODIUM_INCLUDE_DIR sodium.h)
+if(NOT SODIUM OR NOT SODIUM_INCLUDE_DIR)
+    message(FATAL_ERROR "libsodium not found. Install: sudo apt install libsodium-dev")
+endif()
+message(STATUS "Found libsodium: ${SODIUM}")
+
+# ---------------------------------------------------------------------------
 # Python 3.14 detection (prepare for future use)
 # ---------------------------------------------------------------------------
 find_package(Python3 3.14 EXACT QUIET)
@@ -73,7 +83,8 @@ target_include_directories(switch PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(switch PRIVATE ${PLATFORM_LIBS} OpenSSL::Crypto)
+target_link_libraries(switch PRIVATE ${PLATFORM_LIBS} OpenSSL::Crypto ${SODIUM})
+target_include_directories(switch PRIVATE ${SODIUM_INCLUDE_DIR})
 
 # Python linking (conditional, when protect/build features are added)
 if(Python3_FOUND AND Python3_INCLUDE_DIRS)
