@@ -1,137 +1,83 @@
 [
   {
-    "id": "F01",
+    "id": "F1",
     "severity": "high",
-    "file": "src/main.cpp",
-    "line": 77,
-    "title": "Key length không kiểm tra với EncryptType",
-    "summary": "Gõ --encrypt aes-128 --key <key-256-bit> không báo lỗi. hex_to_bytes() trả về vector 32 byte, main.cpp không kiểm tra key.size() == 16 cho AES-128. OpenSSL 3.x: EVP_EncryptInit_ex lỗi → báo 'encryption failed' mơ hồ. OpenSSL 1.x: tự cắt 16 byte đầu → hành vi phụ thuộc phiên bản.",
-    "fix": "Sau khi hex_to_bytes thành công, kiểm tra key->size() khớp với số byte kỳ vọng cho encrypt_type (16/24/32). Nếu không khớp → in lỗi rõ ràng và thoát."
+    "category": "correctness",
+    "file": "include/switch/encrypt.hpp",
+    "line": 44,
+    "summary": "encrypt.hpp comment incorrectly describes ChaCha20 as 'raw stream cipher (no padding, no MAC)' — the code actually uses ChaCha20-Poly1305 AEAD with a Poly1305 MAC",
+    "failure_scenario": "A developer reading this header would believe ChaCha20 mode produces unauthenticated ciphertext. The comment directly contradicts encrypt.cpp:222-242 which appends a 16-byte Poly1305 MAC. A future contributor could add a code path relying on 'no MAC' behavior, producing insecure output."
   },
   {
-    "id": "F02",
+    "id": "F2",
     "severity": "high",
+    "category": "correctness",
+    "file": "include/switch/encrypt.hpp",
+    "line": 45,
+    "summary": "encrypt.hpp comment references 'XChaCha20: AEAD with Poly1305 MAC...nonce=24 bytes' but XChaCha20 is not implemented — only ChaCha20-Poly1305 IETF with 12-byte nonce exists",
+    "failure_scenario": "The comment creates a false impression XChaCha20 is supported. The CLI (cli.cpp:115) only accepts 'chacha20'; expected_nonce_len returns 12 for ChaCha20. No XChaCha20 enum variant exists. A user expecting 24-byte nonce support would be confused."
+  },
+  {
+    "id": "F3",
+    "severity": "critical",
+    "category": "correctness",
     "file": "src/encrypt.cpp",
-    "line": 320,
-    "title": "key_trimmed có thể undefined behavior",
-    "summary": "Dòng `key.begin() + key_len` không kiểm tra key.size() >= key_len. Nếu key ngắn hơn kỳ vọng, iterator trỏ quá end() → UB trong vector range constructor.",
-    "fix": "Thêm assert hoặc kiểm tra key.size() >= key_len trước khi tạo key_trimmed."
+    "line": 406,
+    "summary": "Generated Python decrypt wrapper for ChaCha20 has no try-except around ChaCha20Poly1305.decrypt() — MAC verification failure throws unhandled InvalidTag exception",
+    "failure_scenario": "User runs output.py with wrong key: Python throws 'cryptography.exceptions.InvalidTag' with full traceback. AES path has same issue: PaddingError from unpadding also leaks a raw traceback. Only exec()/decode is caught (line 419)."
   },
   {
-    "id": "F03",
-    "severity": "high",
-    "file": "src/main.cpp",
-    "line": 141,
-    "title": "OPENSSL_thread_stop() là dead code",
-    "summary": "Tất cả case trong switch (Help/Version/EncodeList/Encode/Encrypt/Protect/Build/Unknown) đều có return trước dòng 141. Câu dọn dẹp OpenSSL không bao giờ chạy.",
-    "fix": "Di chuyển OPENSSL_thread_stop() vào cuối mỗi case return, hoặc dùng std::atexit."
-  },
-  {
-    "id": "F04",
-    "severity": "high",
-    "file": "src/encrypt.cpp",
-    "line": 37,
-    "title": "hex_to_bytes trả rỗng thay vì nullopt cho chuỗi rỗng",
-    "summary": "hex_to_bytes('') trả về vector rỗng (có giá trị trong optional). Kiểm tra `if (!key)` ở main.cpp:77 vẫn pass. Key rỗng到达 encrypt_file() → OpenSSL lỗi, báo sai.",
-    "fix": "Trả nullopt khi hex rỗng: `if (hex.empty()) return std::nullopt;`"
-  },
-  {
-    "id": "F05",
+    "id": "F4",
     "severity": "medium",
+    "category": "correctness",
     "file": "src/encrypt.cpp",
-    "line": 125,
-    "title": "encrypt()/decrypt() khôngvalidate độ dài key",
-    "summary": "Hai function nhận key bất kỳ độ dài nào, truyền thẳng cho OpenSSL. OpenSSL 3.x từ chối, OpenSSL 1.x tự cắt. Không có validation ở tầng function.",
-    "fix": "Thêm kiểm tra key.size() == (16/24/32 tùy type) đầu hàm encrypt() và decrypt()."
+    "line": 384,
+    "summary": "Generated Python wrapper uses deprecated cryptography APIs: 'from cryptography.hazmat.backends import default_backend' and backend= parameter to Cipher()",
+    "failure_scenario": "In cryptography >= 42.0.0 the backend parameter is deprecated. Current versions still accept it, but future removal would break all previously generated wrappers. Should omit default_backend import and backend= argument."
   },
   {
-    "id": "F06",
-    "severity": "medium",
-    "file": "src/encrypt.cpp",
-    "line": 272,
-    "title": "Python wrapper không xử lý lỗi",
-    "summary": "File .py sinh ra import `cryptography` không try/except. Nếu chưa cài → ModuleNotFoundError thô. Payload lỗi UTF-8 → UnicodeDecodeError thô. Không có hướng dẫn cho người dùng.",
-    "fix": "Bọc import trong try/except với thông báo hướng dẫn cài đặt. Xử lý decode lỗi UTF-8."
-  },
-  {
-    "id": "F07",
-    "severity": "medium",
-    "file": "src/encrypt.cpp",
-    "line": 306,
-    "title": "encrypt_file bỏ qua lỗi khi input rỗng",
-    "summary": "Kiểm tra `ciphertext.empty() && !data.empty()` — nếu encrypt() lỗi trên file rỗng, cả hai đều đúng → bỏ qua lỗi, trả true, ghi file Python wrapper hỏng.",
-    "fix": "Tách biệt kiểm tra lỗi encrypt() với kiểm tra input rỗng."
-  },
-  {
-    "id": "F08",
-    "severity": "low",
-    "file": "tests/test_cli_encrypt.cpp",
-    "line": 285,
-    "title": "File tạm leak khi REQUIRE fail",
-    "summary": "REQUIRE(ok==true) dùng doctest abort-on-failure. Nếu fail, std::remove() phía sau không chạy → file tạm tồn đọng trong /tmp.",
-    "fix": "Dùng CHECK() thay REQUIRE(), hoặc dùng scope guard/RAII cho cleanup."
-  },
-  {
-    "id": "F09",
-    "severity": "low",
-    "file": "tests/test_cli_encrypt.cpp",
-    "line": 300,
-    "title": "Test empty input chỉ kiểm tra exit code",
-    "summary": "Test chỉ CHECK(WEXITSTATUS(rc)==0), không kiểm tra output rỗng. Nếu giải mã thất bại mà vẫn exit 0 → test sai.",
-    "fix": "Thêm CHECK(py_output.empty()) hoặc kiểm tra output cụ thể."
-  },
-  {
-    "id": "F10",
-    "severity": "cleanup",
-    "file": "CLAUDE.md",
-    "line": 16,
-    "title": "CLAUDE.md chưa cập nhật cho OpenSSL và --encrypt",
-    "summary": "Không ghi OpenSSL trong build requirements, không có encrypt.hpp trong architecture, không có --encrypt trong CLI Commands, namespace switch_encrypt chưa liệt kê.",
-    "fix": "Cập nhật CLAUDE.md: thêm OpenSSL dependency, encrypt.hpp, --encrypt/--key/--iv, switch_encrypt namespace."
-  },
-  {
-    "id": "F11",
-    "severity": "cleanup",
-    "file": "src/encrypt.cpp",
-    "line": 66,
-    "title": "parse_encrypt_type_from_key() là dead code",
-    "summary": "Được khai báo trong encrypt.hpp nhưng không có production call site nào. CLI parse type từ --encrypt argument, không từ key length.",
-    "fix": "Xóa function hoặc kết nối vào luồng parse thực tế."
-  },
-  {
-    "id": "F12",
-    "severity": "cleanup",
-    "file": "src/encrypt.cpp",
-    "line": 52,
-    "title": "bytes_to_hex() là dead code",
-    "summary": "Định nghĩa nhưng không được gọi từ bất kỳ source file nào. Không có trong header.",
-    "fix": "Xóa hoặc sử dụng nếu cần."
-  },
-  {
-    "id": "F13",
-    "severity": "cleanup",
-    "file": "src/encrypt.cpp",
-    "line": 131,
-    "title": "Trùng lặp chọn cipher trong encrypt() và decrypt()",
-    "summary": "Hai switch block giống hệt nhau mapping EncryptType → EVP_CIPHER. Thêm variant mới phải sửa cả hai.",
-    "fix": "Extract thành helper `get_evp_cipher(EncryptType)` dùng chung."
-  },
-  {
-    "id": "F14",
-    "severity": "cleanup",
-    "file": "src/encrypt.cpp",
-    "line": 221,
-    "title": "Trùng lặp base64_encode với encode.cpp",
-    "summary": "encrypt.cpp viết lại base64_encode trong anonymous namespace. encode.cpp đã có logic encoding tương tự. Hai implementation có thể diverge.",
-    "fix": "Dùng chung hàm base64 từ encode module hoặc extract thành shared utility."
-  },
-  {
-    "id": "F15",
-    "severity": "cleanup",
+    "id": "F5",
+    "severity": "high",
+    "category": "correctness",
     "file": "src/cli.cpp",
-    "line": 93,
-    "title": "--encrypt không consuming input file giống --encode",
-    "summary": "--encode (dòng 77) tự add next arg vào positional. --encrypt dựa vào catch-all fallback ở dòng 162. Cùng chức năng nhưng khác cách实现.",
-    "fix": "Thêm logic consume input file vào block --encode/--encrypt cho nhất quán."
+    "line": 140,
+    "summary": "--iv and --nonce are parsed independently without cipher-type validation — --nonce is silently accepted for AES and --iv silently accepted for ChaCha20",
+    "failure_scenario": "User runs: switch --encrypt chacha20 file.py --key <hex> --iv <hex>. CLI parses OK, --iv value is silently discarded, nonce is auto-generated. User has no idea their IV was dropped. Same in reverse: --nonce with AES silently ignored."
+  },
+  {
+    "id": "F6",
+    "severity": "low",
+    "category": "correctness",
+    "file": "tests/test_cli_encrypt.cpp",
+    "line": 240,
+    "summary": "WEXITSTATUS() is POSIX-only macro — test fails to compile on Windows/MSVC (same issue in test_cli_encode.cpp lines 151,176,206,236 and this file lines 267,308,351,386)",
+    "failure_scenario": "Building tests on Windows with MSVC produces compilation error: WEXITSTATUS undefined. Should be guarded with #ifdef or use a platform abstraction."
+  },
+  {
+    "id": "F7",
+    "severity": "medium",
+    "category": "correctness",
+    "file": "src/encrypt.cpp",
+    "line": 458,
+    "summary": "encrypt_file() silently treats empty input as successful encryption even when encrypt() fails internally — encryption failure indistinguishable from success for 0-byte files",
+    "failure_scenario": "encrypt_file() checks ciphertext.empty() && !data.empty() but for empty input, data.empty() is true, so an internal failure (e.g., key validation returning {}) is treated as success. The function returns true with a valid but incorrect output file."
+  },
+  {
+    "id": "F8",
+    "severity": "medium",
+    "category": "correctness",
+    "file": "include/switch/encrypt.hpp",
+    "line": 54,
+    "summary": "decrypt() header comment says 'ChaCha20: XOR again (stream cipher)' but the code actually uses ChaCha20-Poly1305 AEAD decrypt with MAC verification, not XOR",
+    "failure_scenario": "The decrypt() comment at line 54 describes ChaCha20 as 'XOR again (stream cipher)' which is factually wrong for ChaCha20-Poly1305. This reinforces the incorrect 'raw stream cipher' mental model established by the encrypt() comment at line 44."
+  },
+  {
+    "id": "F9",
+    "severity": "low",
+    "category": "simplification",
+    "file": "src/encrypt.cpp",
+    "line": 91,
+    "summary": "encrypt_library_name() is declared in header and implemented but never called anywhere — dead code",
+    "failure_scenario": "Grep confirms zero callers. Adds maintenance surface and misleads readers about the public API. Should be removed or used (e.g., in error messages)."
   }
 ]

@@ -9,6 +9,13 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+// On Windows, _pclose() returns the exit code directly (no wait-status encoding).
+#define WEXITSTATUS(s) (s)
+#else
+#include <sys/wait.h>
+#endif
+
 // Helper: create a temp file with content, returns path
 static std::string create_temp_file(const std::string& content) {
     std::string path = "/tmp/switch_test_enc_" + std::to_string(std::rand()) + ".tmp";
@@ -172,6 +179,22 @@ TEST_CASE("cli parse: --iv without value returns nullopt") {
     const char* argv[] = {"switch", "--encrypt", "aes-256", "test.py",
                           "--key", AES256_KEY, "--iv"};
     auto args = switch_cli::parse(7, argv);
+    CHECK(args == std::nullopt);
+}
+
+TEST_CASE("cli parse: --encrypt chacha20 with --iv returns error") {
+    const char* iv = "00000000000000000000000000000000";
+    const char* argv[] = {"switch", "--encrypt", "chacha20", "in.py",
+                          "--key", AES256_KEY, "--iv", iv};
+    auto args = switch_cli::parse(8, argv);
+    CHECK(args == std::nullopt);
+}
+
+TEST_CASE("cli parse: --encrypt aes-256 with --nonce returns error") {
+    const char* nonce = "000000000000000000000000";
+    const char* argv[] = {"switch", "--encrypt", "aes-256", "in.py",
+                          "--key", AES256_KEY, "--nonce", nonce};
+    auto args = switch_cli::parse(8, argv);
     CHECK(args == std::nullopt);
 }
 

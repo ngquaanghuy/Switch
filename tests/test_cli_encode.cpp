@@ -7,7 +7,13 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+
+#ifdef _WIN32
+// On Windows, _pclose() returns the exit code directly (no wait-status encoding).
+#define WEXITSTATUS(s) (s)
+#else
 #include <sys/wait.h>
+#endif
 
 // Helper: create a temp file with content, returns path
 static std::string create_temp_file(const std::string& content) {
