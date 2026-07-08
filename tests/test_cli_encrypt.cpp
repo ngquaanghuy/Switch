@@ -164,6 +164,35 @@ TEST_CASE("cli parse: --encrypt aes-192-gcm") {
     CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes192Gcm);
 }
 
+TEST_CASE("cli parse: --encrypt aes-128-ccm") {
+    const char* key = "000102030405060708090a0b0c0d0e0f";
+    const char* argv[] = {"switch", "--encrypt", "aes-128-ccm", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes128Ccm);
+}
+
+TEST_CASE("cli parse: --encrypt aes-192-ccm") {
+    const char* key = "000102030405060708090a0b0c0d0e0f1011121314151617";
+    const char* argv[] = {"switch", "--encrypt", "aes-192-ccm", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes192Ccm);
+}
+
+TEST_CASE("cli parse: --encrypt aes-256-ccm") {
+    const char* argv[] = {"switch", "--encrypt", "aes-256-ccm", "in.py",
+                          "--key", AES256_KEY};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes256Ccm);
+}
+
 TEST_CASE("cli parse: --encrypt aes-256-gcm with --iv (12 bytes)") {
     const char* iv = "000000000000000000000000";
     const char* argv[] = {"switch", "--encrypt", "aes-256-gcm", "in.py",
@@ -555,6 +584,40 @@ TEST_CASE("encrypt_file e2e: AES-256-GCM output is runnable Python") {
     CHECK(py_output.find("hello from aes-gcm") != std::string::npos);
 }
 
+TEST_CASE("encrypt_file e2e: AES-256-CCM output is runnable Python") {
+    std::string input_path = create_temp_file("print('hello from aes-ccm')\n");
+    std::string output_path = "/tmp/switch_test_enc_e2e_aesccm.py";
+    TempFileGuard guard{{input_path, output_path}};
+
+    auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
+    auto nonce = switch_encrypt::hex_to_bytes("000000000000000000000000");
+
+    std::string error;
+    bool ok = switch_encrypt::encrypt_file(
+        switch_encrypt::EncryptType::Aes256Ccm, input_path, output_path,
+        *key, *nonce, error);
+    INFO("error: ", error);
+    REQUIRE(ok == true);
+
+    // Verify wrapper structure
+    std::string output = read_file(output_path);
+    CHECK(output.find("# Encrypted by Switch") != std::string::npos);
+    CHECK(output.find("AESCCM") != std::string::npos);
+    CHECK(output.find("exec(") != std::string::npos);
+
+    // Verify runnable
+    std::string cmd = "python3 " + output_path + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe)) py_output += buf;
+    int rc = pclose(pipe);
+    INFO("python output: ", py_output);
+    CHECK(WEXITSTATUS(rc) == 0);
+    CHECK(py_output.find("hello from aes-ccm") != std::string::npos);
+}
+
 TEST_CASE("encrypt_file e2e: nonexistent input path fails") {
     auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
     auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
@@ -619,6 +682,30 @@ TEST_CASE("cli parse: --key-generator aes-192-gcm") {
     REQUIRE(args.has_value());
     CHECK(args->cmd == switch_cli::Command::KeyGenerator);
     CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes192Gcm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-128-ccm") {
+    const char* argv[] = {"switch", "--key-generator", "aes-128-ccm"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes128Ccm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-192-ccm") {
+    const char* argv[] = {"switch", "--key-generator", "aes-192-ccm"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes192Ccm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-256-ccm") {
+    const char* argv[] = {"switch", "--key-generator", "aes-256-ccm"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes256Ccm);
 }
 
 TEST_CASE("cli parse: --key-generator case-insensitive") {

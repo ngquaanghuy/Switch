@@ -124,6 +124,13 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes192Gcm;
             } else if (type_str == "aes-256-gcm" || type_str == "aes256gcm" || type_str == "AES-256-GCM" || type_str == "AES256GCM") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes256Gcm;
+            // AES-CCM AEAD (NIST SP 800-38C, 12-byte nonce, 16-byte auth tag, OpenSSL backend)
+            } else if (type_str == "aes-128-ccm" || type_str == "aes128ccm" || type_str == "AES-128-CCM" || type_str == "AES128CCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes128Ccm;
+            } else if (type_str == "aes-192-ccm" || type_str == "aes192ccm" || type_str == "AES-192-CCM" || type_str == "AES192CCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes192Ccm;
+            } else if (type_str == "aes-256-ccm" || type_str == "aes256ccm" || type_str == "AES-256-CCM" || type_str == "AES256CCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes256Ccm;
             } else {
                 std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -171,6 +178,12 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.key_gen_type = switch_encrypt::EncryptType::Aes192Gcm;
             } else if (kg_name == "aes-256-gcm" || kg_name == "aes256gcm" || kg_name == "AES-256-GCM" || kg_name == "AES256GCM") {
                 args.key_gen_type = switch_encrypt::EncryptType::Aes256Gcm;
+            } else if (kg_name == "aes-128-ccm" || kg_name == "aes128ccm" || kg_name == "AES-128-CCM" || kg_name == "AES128CCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes128Ccm;
+            } else if (kg_name == "aes-192-ccm" || kg_name == "aes192ccm" || kg_name == "AES-192-CCM" || kg_name == "AES192CCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes192Ccm;
+            } else if (kg_name == "aes-256-ccm" || kg_name == "aes256ccm" || kg_name == "AES-256-CCM" || kg_name == "AES256CCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes256Ccm;
             } else {
                 std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -268,7 +281,9 @@ void print_help() {
               << "                     Types: " << switch_encode::all_encode_names() << "\n"
               << "                     Output runs with: python output.py\n"
               << "  --encrypt <type>   Encrypt input .py into runnable encrypted .py\n"
-              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm\n"
+              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20,\n"
+              << "                             aes-128-gcm, aes-192-gcm, aes-256-gcm,\n"
+              << "                             aes-128-ccm, aes-192-ccm, aes-256-ccm\n"
               << "                     Requires: --key <hex>\n"
               << "                     AES: --iv <hex> (optional, auto-generated)\n"
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"

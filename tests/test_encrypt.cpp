@@ -67,6 +67,9 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes128Gcm) == "aes-128-gcm");
     CHECK(encrypt_type_name(EncryptType::Aes192Gcm) == "aes-192-gcm");
     CHECK(encrypt_type_name(EncryptType::Aes256Gcm) == "aes-256-gcm");
+    CHECK(encrypt_type_name(EncryptType::Aes128Ccm) == "aes-128-ccm");
+    CHECK(encrypt_type_name(EncryptType::Aes192Ccm) == "aes-192-ccm");
+    CHECK(encrypt_type_name(EncryptType::Aes256Ccm) == "aes-256-ccm");
 }
 
 // =========================================================================
@@ -437,6 +440,49 @@ TEST_CASE("aes-256-gcm: iv validation") {
 }
 
 // =========================================================================
+// AES-CCM AEAD encrypt / decrypt (NIST SP 800-38C, 12-byte nonce, 16-byte tag)
+// =========================================================================
+
+TEST_CASE("aes-128-ccm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f");
+    auto nonce = from_hex("000000000000000000000000");
+    std::string original = "AES-128-CCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes128Ccm, bytes(original), key, nonce);
+    auto pt = decrypt(EncryptType::Aes128Ccm, ct, key, nonce);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-192-ccm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f1011121314151617");
+    auto nonce = from_hex("000000000000000000000000");
+    std::string original = "AES-192-CCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes192Ccm, bytes(original), key, nonce);
+    auto pt = decrypt(EncryptType::Aes192Ccm, ct, key, nonce);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-ccm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    std::string original = "AES-256-CCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes256Ccm, bytes(original), key, nonce);
+    auto pt = decrypt(EncryptType::Aes256Ccm, ct, key, nonce);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-ccm: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Ccm, bytes("secret"), key, nonce);
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::Aes256Ccm, ct, wrong_key, nonce);
+    CHECK(pt.empty());
+}
+
+// =========================================================================
 // generate_random_iv
 // =========================================================================
 
@@ -527,6 +573,9 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
         {EncryptType::Aes128Gcm, key128, iv_gcm},
         {EncryptType::Aes192Gcm, key192, iv_gcm},
         {EncryptType::Aes256Gcm, key256, iv_gcm},
+        {EncryptType::Aes128Ccm, key128, iv_gcm},
+        {EncryptType::Aes192Ccm, key192, iv_gcm},
+        {EncryptType::Aes256Ccm, key256, iv_gcm},
     };
 
     for (auto& tc : tests) {

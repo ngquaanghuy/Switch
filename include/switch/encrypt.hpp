@@ -18,6 +18,9 @@ enum class EncryptType {
     Aes128Gcm,  // AES-128-GCM AEAD (12-byte IV, 16-byte auth tag)
     Aes192Gcm,  // AES-192-GCM AEAD (12-byte IV, 16-byte auth tag)
     Aes256Gcm,  // AES-256-GCM AEAD (12-byte IV, 16-byte auth tag)
+    Aes128Ccm,  // AES-128-CCM AEAD (NIST SP 800-38C, 12-byte nonce, 16-byte tag)
+    Aes192Ccm,  // AES-192-CCM AEAD (NIST SP 800-38C, 12-byte nonce, 16-byte tag)
+    Aes256Ccm,  // AES-256-CCM AEAD (NIST SP 800-38C, 12-byte nonce, 16-byte tag)
 };
 
 // Convert hex string to byte vector.
