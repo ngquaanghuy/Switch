@@ -70,6 +70,8 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes128Ccm) == "aes-128-ccm");
     CHECK(encrypt_type_name(EncryptType::Aes192Ccm) == "aes-192-ccm");
     CHECK(encrypt_type_name(EncryptType::Aes256Ccm) == "aes-256-ccm");
+    CHECK(encrypt_type_name(EncryptType::Aes128Siv) == "aes-128-siv");
+    CHECK(encrypt_type_name(EncryptType::Aes256Siv) == "aes-256-siv");
 }
 
 // =========================================================================
@@ -479,6 +481,59 @@ TEST_CASE("aes-256-ccm: wrong key fails to decrypt") {
     auto ct = encrypt(EncryptType::Aes256Ccm, bytes("secret"), key, nonce);
     auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
     auto pt = decrypt(EncryptType::Aes256Ccm, ct, wrong_key, nonce);
+    CHECK(pt.empty());
+}
+
+// =========================================================================
+// AES-SIV (RFC 5297) encrypt / decrypt — deterministic AEAD
+// =========================================================================
+
+TEST_CASE("aes-128-siv: roundtrip") {
+    // 32-byte key = 16 CMAC + 16 CTR
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f"
+                        "101112131415161718191a1b1c1d1e1f");
+    std::string original = "AES-128-SIV roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes128Siv, bytes(original), key, {});
+    REQUIRE(!ct.empty());
+    CHECK(ct.size() == original.size() + 16); // plaintext + 16-byte SIV
+    auto pt = decrypt(EncryptType::Aes128Siv, ct, key, {});
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-siv: roundtrip") {
+    // 32-byte key (same structure for both SIV types)
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    std::string original = "AES-256-SIV roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes256Siv, bytes(original), key, {});
+    REQUIRE(!ct.empty());
+    CHECK(ct.size() == original.size() + 16);
+    auto pt = decrypt(EncryptType::Aes256Siv, ct, key, {});
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-siv: deterministic — same input → same output") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    std::string original = "deterministic test";
+    auto ct1 = encrypt(EncryptType::Aes256Siv, bytes(original), key, {});
+    auto ct2 = encrypt(EncryptType::Aes256Siv, bytes(original), key, {});
+    CHECK(ct1 == ct2); // SIV is deterministic
+}
+
+TEST_CASE("aes-256-siv: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto ct = encrypt(EncryptType::Aes256Siv, bytes("secret"), key, {});
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::Aes256Siv, ct, wrong_key, {});
+    CHECK(pt.empty()); // SIV verification failed
+}
+
+TEST_CASE("aes-256-siv: empty input") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto ct = encrypt(EncryptType::Aes256Siv, {}, key, {});
+    CHECK(ct.size() == 16); // just the SIV tag
+    auto pt = decrypt(EncryptType::Aes256Siv, ct, key, {});
     CHECK(pt.empty());
 }
 

@@ -193,6 +193,26 @@ TEST_CASE("cli parse: --encrypt aes-256-ccm") {
     CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes256Ccm);
 }
 
+TEST_CASE("cli parse: --encrypt aes-128-siv") {
+    const char* key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f";
+    const char* argv[] = {"switch", "--encrypt", "aes-128-siv", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes128Siv);
+}
+
+TEST_CASE("cli parse: --encrypt aes-256-siv") {
+    const char* key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f";
+    const char* argv[] = {"switch", "--encrypt", "aes-256-siv", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes256Siv);
+}
+
 TEST_CASE("cli parse: --encrypt aes-256-gcm with --iv (12 bytes)") {
     const char* iv = "000000000000000000000000";
     const char* argv[] = {"switch", "--encrypt", "aes-256-gcm", "in.py",
@@ -618,6 +638,41 @@ TEST_CASE("encrypt_file e2e: AES-256-CCM output is runnable Python") {
     CHECK(py_output.find("hello from aes-ccm") != std::string::npos);
 }
 
+TEST_CASE("encrypt_file e2e: AES-256-SIV output is runnable Python") {
+    std::string input_path = create_temp_file("print('hello from aes-siv')\n");
+    std::string output_path = "/tmp/switch_test_enc_e2e_aessiv.py";
+    TempFileGuard guard{{input_path, output_path}};
+
+    // 32-byte key = 16 CMAC + 16 CTR
+    auto key = switch_encrypt::hex_to_bytes(
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+
+    std::string error;
+    bool ok = switch_encrypt::encrypt_file(
+        switch_encrypt::EncryptType::Aes256Siv, input_path, output_path,
+        *key, {}, error);
+    INFO("error: ", error);
+    REQUIRE(ok == true);
+
+    // Verify wrapper structure
+    std::string output = read_file(output_path);
+    CHECK(output.find("# Encrypted by Switch") != std::string::npos);
+    CHECK(output.find("_s2v") != std::string::npos);  // custom SIV implementation
+    CHECK(output.find("exec(") != std::string::npos);
+
+    // Verify runnable
+    std::string cmd = "python3 " + output_path + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe)) py_output += buf;
+    int rc = pclose(pipe);
+    INFO("python output: ", py_output);
+    CHECK(WEXITSTATUS(rc) == 0);
+    CHECK(py_output.find("hello from aes-siv") != std::string::npos);
+}
+
 TEST_CASE("encrypt_file e2e: nonexistent input path fails") {
     auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
     auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
@@ -706,6 +761,22 @@ TEST_CASE("cli parse: --key-generator aes-256-ccm") {
     REQUIRE(args.has_value());
     CHECK(args->cmd == switch_cli::Command::KeyGenerator);
     CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes256Ccm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-128-siv") {
+    const char* argv[] = {"switch", "--key-generator", "aes-128-siv"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes128Siv);
+}
+
+TEST_CASE("cli parse: --key-generator aes-256-siv") {
+    const char* argv[] = {"switch", "--key-generator", "aes-256-siv"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes256Siv);
 }
 
 TEST_CASE("cli parse: --key-generator case-insensitive") {

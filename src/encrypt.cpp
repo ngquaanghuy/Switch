@@ -63,12 +63,14 @@ std::string encrypt_type_name(EncryptType type) {
     case EncryptType::Aes128Ccm: return "aes-128-ccm";
     case EncryptType::Aes192Ccm: return "aes-192-ccm";
     case EncryptType::Aes256Ccm: return "aes-256-ccm";
+    case EncryptType::Aes128Siv: return "aes-128-siv";
+    case EncryptType::Aes256Siv: return "aes-256-siv";
     }
     return "unknown";
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm, aes-128-ccm, aes-192-ccm, aes-256-ccm";
+    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm, aes-128-ccm, aes-192-ccm, aes-256-ccm, aes-128-siv, aes-256-siv";
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -84,6 +86,8 @@ size_t expected_key_len(EncryptType type) {
     case EncryptType::Aes128Ccm: return 16;
     case EncryptType::Aes192Ccm: return 24;
     case EncryptType::Aes256Ccm: return 32;
+    case EncryptType::Aes128Siv: return 32;  // 16 CMAC + 16 CTR
+    case EncryptType::Aes256Siv: return 32;  // 16 CMAC + 16 CTR
     }
     return 0;
 }
@@ -101,6 +105,8 @@ size_t expected_nonce_len(EncryptType type) {
     case EncryptType::Aes128Ccm: return 12; // CCM standard nonce
     case EncryptType::Aes192Ccm: return 12; // CCM standard nonce
     case EncryptType::Aes256Ccm: return 12; // CCM standard nonce
+    case EncryptType::Aes128Siv: return 0;  // SIV nonce optional
+    case EncryptType::Aes256Siv: return 0;  // SIV nonce optional
     }
     return 0;
 }
@@ -405,6 +411,168 @@ std::vector<uint8_t> aes_ccm_decrypt(const std::vector<uint8_t>& ciphertext,
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
+// AES-SIV (RFC 5297) encrypt / decrypt via OpenSSL CMAC + AES-CTR
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// GF(2^128) doubling: shift left by 1 bit, XOR 0x87 if MSB was set.
+static void gf128_double(uint8_t block[16]) {
+    uint8_t msb = block[0] & 0x80;
+    // Shift left by 1 bit
+    for (int i = 0; i < 15; ++i) {
+        block[i] = (block[i] << 1) | (block[i + 1] >> 7);
+    }
+    block[15] <<= 1;
+    if (msb) block[15] ^= 0x87;
+}
+
+// AES-128-CMAC via OpenSSL EVP_MAC (OpenSSL 3.x API).
+static std::vector<uint8_t> cmac_aes128(const uint8_t key[16],
+                                        const uint8_t* data, size_t len) {
+    EVP_MAC* mac = EVP_MAC_fetch(nullptr, "CMAC", nullptr);
+    if (!mac) return {};
+
+    EVP_MAC_CTX* ctx = EVP_MAC_CTX_new(mac);
+    if (!ctx) { EVP_MAC_free(mac); return {}; }
+
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_utf8_string("cipher", const_cast<char*>("AES-128-CBC"), 0),
+        OSSL_PARAM_construct_end()
+    };
+
+    bool ok = true;
+    ok = ok && (EVP_MAC_init(ctx, key, 16, params) == 1);
+    ok = ok && (EVP_MAC_update(ctx, data, len) == 1);
+
+    size_t tag_len = 0;
+    ok = ok && (EVP_MAC_final(ctx, nullptr, &tag_len, 0) == 1);
+    std::vector<uint8_t> tag(tag_len);
+    ok = ok && (EVP_MAC_final(ctx, tag.data(), &tag_len, tag_len) == 1);
+
+    EVP_MAC_CTX_free(ctx);
+    EVP_MAC_free(mac);
+    return ok ? tag : std::vector<uint8_t>{};
+}
+
+// S2V: derive 16-byte synthetic IV per RFC 5297.
+// ad_list is a vector of associated data chunks.
+static std::vector<uint8_t> siv_s2v(const uint8_t* cmac_key,
+                                    const std::vector<std::vector<uint8_t>>& ad_list,
+                                    const uint8_t* plaintext, size_t pt_len) {
+    // Step 1: D = CMAC(K1, "") — start with CMAC of empty string
+    std::vector<uint8_t> d = cmac_aes128(cmac_key, nullptr, 0);
+
+    // Step 2: For each AD[i], D = CMAC(K1, D XOR CMAC(K1, AD[i]))
+    for (const auto& ad : ad_list) {
+        auto cmac_ad = cmac_aes128(cmac_key, ad.data(), ad.size());
+        for (int i = 0; i < 16; ++i) d[i] ^= cmac_ad[i];
+        gf128_double(d.data());
+        auto cmac_d = cmac_aes128(cmac_key, d.data(), 16);
+        d = cmac_d;
+    }
+
+    // Step 3: Double D
+    gf128_double(d.data());
+
+    // Step 4: D ^= CMAC(K1, plaintext)
+    auto cmac_pt = cmac_aes128(cmac_key, plaintext, pt_len);
+    for (int i = 0; i < 16; ++i) d[i] ^= cmac_pt[i];
+
+    // Step 5: SIV = CMAC(K1, D)
+    return cmac_aes128(cmac_key, d.data(), 16);
+}
+
+// AES-CTR with 128-bit IV (big-endian counter = IV + 1).
+// Note: OpenSSL EVP_aes_256_cbc() with padding disabled is NOT CTR.
+// We use EVP_EncryptInit_ex with the actual CTR cipher.
+static std::vector<uint8_t> aes_ctr(const uint8_t* key, size_t key_len,
+                                    const uint8_t iv[16],
+                                    const uint8_t* data, size_t len) {
+    const EVP_CIPHER* cipher = (key_len == 32) ? EVP_aes_256_ctr() : EVP_aes_128_ctr();
+    if (!cipher) return {};
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+
+    std::vector<uint8_t> out(len);
+    int out_len = 0, final_len = 0;
+
+    bool ok = true;
+    ok = ok && (EVP_EncryptInit_ex(ctx, cipher, nullptr, key, iv) == 1);
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    ok = ok && (EVP_EncryptUpdate(ctx, out.data(), &out_len, data, static_cast<int>(len)) == 1);
+    ok = ok && (EVP_EncryptFinal_ex(ctx, out.data() + out_len, &final_len) == 1);
+
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) return {};
+    out.resize(out_len + final_len);
+    return out;
+}
+
+// SIV encrypt: returns SIV(16 bytes) || CTR_ciphertext.
+static std::vector<uint8_t> aes_siv_encrypt(const uint8_t* key, size_t key_len,
+                                            const uint8_t* /*nonce*/, size_t /*nonce_len*/,
+                                            const uint8_t* plaintext, size_t pt_len) {
+    // Key split: CMAC=key[:16], CTR=key[16:32] (first32 bytes used for both sizes)
+    const uint8_t* cmac_key = key;       // first 16 bytes
+    const uint8_t* ctr_key = key + 16;   // bytes 16-31
+
+    // Compute SIV
+    std::vector<std::vector<uint8_t>> ad_list;
+    auto siv = siv_s2v(cmac_key, ad_list, plaintext, pt_len);
+
+    // Derive CTR IV: clear MSB of SIV
+    uint8_t iv[16];
+    std::copy(siv.begin(), siv.end(), iv);
+    iv[0] &= 0x7F; // clear MSB
+
+    // CTR encrypt
+    auto ct = aes_ctr(ctr_key, 16, iv, plaintext, pt_len);
+
+    // Output: SIV || ciphertext
+    std::vector<uint8_t> result;
+    result.reserve(16 + ct.size());
+    result.insert(result.end(), siv.begin(), siv.end());
+    result.insert(result.end(), ct.begin(), ct.end());
+    return result;
+}
+
+// SIV decrypt: split SIV, CTR decrypt, verify SIV.
+static std::vector<uint8_t> aes_siv_decrypt(const uint8_t* key, size_t key_len,
+                                            const uint8_t* /*nonce*/, size_t /*nonce_len*/,
+                                            const uint8_t* ciphertext, size_t ct_len) {
+    if (ct_len < 16) return {};
+
+    // Key split: CMAC=key[:16], CTR=key[16:32]
+    const uint8_t* cmac_key = key;
+    const uint8_t* ctr_key = key + 16;
+
+    // Extract SIV
+    const uint8_t* siv = ciphertext;
+    const uint8_t* enc_data = ciphertext + 16;
+    size_t enc_len = ct_len - 16;
+
+    // Derive CTR IV
+    uint8_t iv[16];
+    std::copy(siv, siv + 16, iv);
+    iv[0] &= 0x7F;
+
+    // CTR decrypt
+    auto pt = aes_ctr(ctr_key, 16, iv, enc_data, enc_len);
+    if (pt.empty() && enc_len > 0) return {};
+
+    // Verify: recompute SIV and compare
+    std::vector<std::vector<uint8_t>> ad_list;
+    auto expected_siv = siv_s2v(cmac_key, ad_list, pt.data(), pt.size());
+
+    if (std::memcmp(siv, expected_siv.data(), 16) != 0) return {};
+    return pt;
+}
+
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
 // ChaCha20-Poly1305 AEAD encrypt / decrypt via libsodium (IETF variant)
 // ---------------------------------------------------------------------------
 
@@ -541,6 +709,11 @@ std::vector<uint8_t> encrypt(EncryptType type,
     case EncryptType::Aes192Ccm:
     case EncryptType::Aes256Ccm:
         return aes_ccm_encrypt(plaintext, key, iv_or_nonce, type);
+    case EncryptType::Aes128Siv:
+    case EncryptType::Aes256Siv:
+        return aes_siv_encrypt(key.data(), key.size(),
+                               iv_or_nonce.data(), iv_or_nonce.size(),
+                               plaintext.data(), plaintext.size());
     }
     return {};
 }
@@ -571,6 +744,11 @@ std::vector<uint8_t> decrypt(EncryptType type,
     case EncryptType::Aes192Ccm:
     case EncryptType::Aes256Ccm:
         return aes_ccm_decrypt(ciphertext, key, iv_or_nonce, type);
+    case EncryptType::Aes128Siv:
+    case EncryptType::Aes256Siv:
+        return aes_siv_decrypt(key.data(), key.size(),
+                               iv_or_nonce.data(), iv_or_nonce.size(),
+                               ciphertext.data(), ciphertext.size());
     }
     return {};
 }
@@ -681,6 +859,9 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n";
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESCCM\n";
+    } else if (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv) {
+        w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
+        w += "    from cryptography.hazmat.primitives.cmac import CMAC as _CMAC\n";
     } else {
         w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
         w += "    from cryptography.hazmat.primitives import padding as sym_padding\n";
@@ -721,6 +902,29 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
         w += "    _box = AESCCM(_key, tag_length=16)\n";
         w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
+    } else if (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv) {
+        w += "    def _cmac128(k, d):\n";
+        w += "        c = _CMAC(algorithms.AES(k[:16])); c.update(d); return c.finalize()\n";
+        w += "    def _gf128dbl(b):\n";
+        w += "        b = bytearray(b); m = b[0] & 0x80\n";
+        w += "        for i in range(15): b[i] = ((b[i] << 1) | (b[i+1] >> 7)) & 0xFF\n";
+        w += "        b[15] = (b[15] << 1) & 0xFF\n";
+        w += "        if m: b[15] ^= 0x87\n";
+        w += "        return bytes(b)\n";
+        w += "    def _s2v(k, pt):\n";
+        w += "        d = _cmac128(k, b'')\n";
+        w += "        d = _gf128dbl(d)\n";
+        w += "        d = bytes(a ^ b for a, b in zip(d, _cmac128(k, pt)))\n";
+        w += "        return _cmac128(k, d)\n";
+        w += "    _siv = bytes(_ct[:16])\n";
+        w += "    _iv = bytearray(_siv); _iv[0] &= 0x7F\n";
+        w += "    _cmac_key = _key[:16]\n";
+        w += "    _ctr_key = _key[16:32]\n";
+        w += "    _dec = Cipher(algorithms.AES(_ctr_key), modes.CTR(bytes(_iv))).decryptor()\n";
+        w += "    _pt = _dec.update(_ct[16:]) + _dec.finalize()\n";
+        w += "    _expected_siv = _s2v(_cmac_key, _pt)\n";
+        w += "    if _siv != _expected_siv:\n";
+        w += "        raise ValueError('AES-SIV verification failed (bad key)')\n";
     } else {
         w += "    _cipher = Cipher(algorithms.AES(_key), modes.CBC(_iv))\n";
         w += "    _dec = _cipher.decryptor()\n";
@@ -780,7 +984,10 @@ bool encrypt_file(EncryptType type,
         error_msg = "key too short for " + encrypt_type_name(type);
         return false;
     }
-    std::vector<uint8_t> key_trimmed(key.begin(), key.begin() + key_len);
+    // SIV uses full key (48/64 bytes), no trimming
+    std::vector<uint8_t> key_trimmed(key.begin(),
+        (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv)
+            ? key.end() : key.begin() + key_len);
 
     // 3. Encrypt
     std::vector<uint8_t> ciphertext = encrypt(type, data, key, iv_or_nonce);

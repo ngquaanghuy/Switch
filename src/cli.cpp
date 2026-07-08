@@ -131,6 +131,11 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes192Ccm;
             } else if (type_str == "aes-256-ccm" || type_str == "aes256ccm" || type_str == "AES-256-CCM" || type_str == "AES256CCM") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes256Ccm;
+            // AES-SIV RFC 5297 (deterministic AEAD, safe against nonce reuse)
+            } else if (type_str == "aes-128-siv" || type_str == "aes128siv" || type_str == "AES-128-SIV" || type_str == "AES128SIV") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes128Siv;
+            } else if (type_str == "aes-256-siv" || type_str == "aes256siv" || type_str == "AES-256-SIV" || type_str == "AES256SIV") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes256Siv;
             } else {
                 std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -184,6 +189,10 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.key_gen_type = switch_encrypt::EncryptType::Aes192Ccm;
             } else if (kg_name == "aes-256-ccm" || kg_name == "aes256ccm" || kg_name == "AES-256-CCM" || kg_name == "AES256CCM") {
                 args.key_gen_type = switch_encrypt::EncryptType::Aes256Ccm;
+            } else if (kg_name == "aes-128-siv" || kg_name == "aes128siv" || kg_name == "AES-128-SIV" || kg_name == "AES128SIV") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes128Siv;
+            } else if (kg_name == "aes-256-siv" || kg_name == "aes256siv" || kg_name == "AES-256-SIV" || kg_name == "AES256SIV") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes256Siv;
             } else {
                 std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -282,8 +291,8 @@ void print_help() {
               << "                     Output runs with: python output.py\n"
               << "  --encrypt <type>   Encrypt input .py into runnable encrypted .py\n"
               << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20,\n"
-              << "                             aes-128-gcm, aes-192-gcm, aes-256-gcm,\n"
-              << "                             aes-128-ccm, aes-192-ccm, aes-256-ccm\n"
+              << "                             aes-{128,192,256}-gcm, aes-{128,192,256}-ccm,\n"
+              << "                             aes-{128,256}-siv\n"
               << "                     Requires: --key <hex>\n"
               << "                     AES: --iv <hex> (optional, auto-generated)\n"
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"
