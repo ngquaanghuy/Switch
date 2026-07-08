@@ -98,6 +98,35 @@ TEST_CASE("cli parse: --encrypt ChaCha20 (mixed case)") {
     CHECK(args->encrypt_type == switch_encrypt::EncryptType::ChaCha20);
 }
 
+TEST_CASE("cli parse: --encrypt xchacha20") {
+    const char* argv[] = {"switch", "--encrypt", "xchacha20", "in.py",
+                          "--key", AES256_KEY};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::XChaCha20);
+}
+
+TEST_CASE("cli parse: --encrypt XChaCha20 (mixed case)") {
+    const char* argv[] = {"switch", "--encrypt", "XChaCha20", "in.py",
+                          "--key", AES256_KEY};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::XChaCha20);
+}
+
+TEST_CASE("cli parse: --encrypt xchacha20 with --nonce") {
+    const char* nonce = "000000000000000000000000000000000000000000000000";
+    const char* argv[] = {"switch", "--encrypt", "xchacha20", "in.py",
+                          "--key", AES256_KEY, "--nonce", nonce};
+    auto args = switch_cli::parse(8, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::XChaCha20);
+    REQUIRE(args->encrypt_nonce.has_value());
+    CHECK(*args->encrypt_nonce == nonce);
+}
+
 TEST_CASE("cli parse: --encrypt chacha20 with --nonce") {
     const char* nonce = "000000000000000000000000";
     const char* argv[] = {"switch", "--encrypt", "chacha20", "in.py",
@@ -410,6 +439,40 @@ TEST_CASE("encrypt_file e2e: ChaCha20-Poly1305 output is runnable Python") {
     CHECK(py_output.find("hello from chacha20") != std::string::npos);
 }
 
+TEST_CASE("encrypt_file e2e: XChaCha20-Poly1305 output is runnable Python") {
+    std::string input_path = create_temp_file("print('hello from xchacha20')\n");
+    std::string output_path = "/tmp/switch_test_enc_e2e_xchacha20.py";
+    TempFileGuard guard{{input_path, output_path}};
+
+    auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
+    auto nonce = switch_encrypt::hex_to_bytes("000000000000000000000000000000000000000000000000");
+
+    std::string error;
+    bool ok = switch_encrypt::encrypt_file(
+        switch_encrypt::EncryptType::XChaCha20, input_path, output_path,
+        *key, *nonce, error);
+    INFO("error: ", error);
+    REQUIRE(ok == true);
+
+    // Verify wrapper structure
+    std::string output = read_file(output_path);
+    CHECK(output.find("# Encrypted by Switch") != std::string::npos);
+    CHECK(output.find("from nacl") != std::string::npos);
+    CHECK(output.find("exec(") != std::string::npos);
+
+    // Verify runnable
+    std::string cmd = "python3 " + output_path + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe)) py_output += buf;
+    int rc = pclose(pipe);
+    INFO("python output: ", py_output);
+    CHECK(WEXITSTATUS(rc) == 0);
+    CHECK(py_output.find("hello from xchacha20") != std::string::npos);
+}
+
 TEST_CASE("encrypt_file e2e: nonexistent input path fails") {
     auto key = switch_encrypt::hex_to_bytes(AES256_KEY);
     auto iv  = switch_encrypt::hex_to_bytes("00000000000000000000000000000000");
@@ -442,6 +505,14 @@ TEST_CASE("cli parse: --key-generator chacha20") {
     REQUIRE(args.has_value());
     CHECK(args->cmd == switch_cli::Command::KeyGenerator);
     CHECK(*args->key_gen_type == switch_encrypt::EncryptType::ChaCha20);
+}
+
+TEST_CASE("cli parse: --key-generator xchacha20") {
+    const char* argv[] = {"switch", "--key-generator", "xchacha20"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::XChaCha20);
 }
 
 TEST_CASE("cli parse: --key-generator case-insensitive") {

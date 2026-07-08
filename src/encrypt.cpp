@@ -56,12 +56,13 @@ std::string encrypt_type_name(EncryptType type) {
     case EncryptType::Aes192:    return "aes-192";
     case EncryptType::Aes256:    return "aes-256";
     case EncryptType::ChaCha20:  return "chacha20";
+    case EncryptType::XChaCha20: return "xchacha20";
     }
     return "unknown";
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20";
+    return "aes-128, aes-192, aes-256, chacha20, xchacha20";
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -70,6 +71,7 @@ size_t expected_key_len(EncryptType type) {
     case EncryptType::Aes192:    return 24;
     case EncryptType::Aes256:    return 32;
     case EncryptType::ChaCha20:  return 32;
+    case EncryptType::XChaCha20: return 32;
     }
     return 0;
 }
@@ -80,12 +82,13 @@ size_t expected_nonce_len(EncryptType type) {
     case EncryptType::Aes192:    return 16; // IV
     case EncryptType::Aes256:    return 16; // IV
     case EncryptType::ChaCha20:  return 12; // IETF nonce
+    case EncryptType::XChaCha20: return 24; // XChaCha20 IETF nonce
     }
     return 0;
 }
 
 bool is_stream_cipher(EncryptType type) {
-    return type == EncryptType::ChaCha20;
+    return type == EncryptType::ChaCha20 || type == EncryptType::XChaCha20;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +259,59 @@ std::vector<uint8_t> chacha20_decrypt(const std::vector<uint8_t>& ciphertext,
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
+// XChaCha20-Poly1305 AEAD encrypt / decrypt via libsodium (IETF variant)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// XChaCha20 extends ChaCha20 with 24-byte nonce (HChaCha20 key derivation).
+// libsodium appends 16-byte Poly1305 MAC to ciphertext.
+
+std::vector<uint8_t> xchacha20_encrypt(const std::vector<uint8_t>& plaintext,
+                                       const std::vector<uint8_t>& key,
+                                       const std::vector<uint8_t>& nonce) {
+    std::vector<uint8_t> ciphertext(plaintext.size() + crypto_aead_xchacha20poly1305_ietf_ABYTES);
+    unsigned long long ciphertext_len = 0;
+
+    if (crypto_aead_xchacha20poly1305_ietf_encrypt(
+            ciphertext.data(), &ciphertext_len,
+            plaintext.data(), plaintext.size(),
+            nullptr, 0,  // no additional data
+            nullptr,     // no nonce copy
+            nonce.data(),
+            key.data()) != 0) {
+        return {};
+    }
+    ciphertext.resize(ciphertext_len);
+    return ciphertext;
+}
+
+std::vector<uint8_t> xchacha20_decrypt(const std::vector<uint8_t>& ciphertext,
+                                       const std::vector<uint8_t>& key,
+                                       const std::vector<uint8_t>& nonce) {
+    if (ciphertext.size() < crypto_aead_xchacha20poly1305_ietf_ABYTES) {
+        return {}; // too short for MAC
+    }
+
+    std::vector<uint8_t> plaintext(ciphertext.size() - crypto_aead_xchacha20poly1305_ietf_ABYTES);
+    unsigned long long plaintext_len = 0;
+
+    if (crypto_aead_xchacha20poly1305_ietf_decrypt(
+            plaintext.data(), &plaintext_len,
+            nullptr,  // no additional data
+            ciphertext.data(), ciphertext.size(),
+            nullptr, 0, // no additional data
+            nonce.data(),
+            key.data()) != 0) {
+        return {}; // MAC verification failed
+    }
+    plaintext.resize(plaintext_len);
+    return plaintext;
+}
+
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
 // Unified encrypt / decrypt dispatch
 // ---------------------------------------------------------------------------
 
@@ -275,6 +331,8 @@ std::vector<uint8_t> encrypt(EncryptType type,
         return aes_encrypt(plaintext, key, iv_or_nonce, type);
     case EncryptType::ChaCha20:
         return chacha20_encrypt(plaintext, key, iv_or_nonce);
+    case EncryptType::XChaCha20:
+        return xchacha20_encrypt(plaintext, key, iv_or_nonce);
     }
     return {};
 }
@@ -295,6 +353,8 @@ std::vector<uint8_t> decrypt(EncryptType type,
         return aes_decrypt(ciphertext, key, iv_or_nonce, type);
     case EncryptType::ChaCha20:
         return chacha20_decrypt(ciphertext, key, iv_or_nonce);
+    case EncryptType::XChaCha20:
+        return xchacha20_decrypt(ciphertext, key, iv_or_nonce);
     }
     return {};
 }
@@ -387,7 +447,11 @@ std::string make_python_decrypt_wrapper(EncryptType type,
                                          const std::string& b64_iv_or_nonce) {
     std::string w;
     w += "# Encrypted by Switch (" + encrypt_type_name(type) + ") — run with: python3 this_file.py\n";
-    w += "# Requires: pip install cryptography\n";
+    if (type == EncryptType::XChaCha20) {
+        w += "# Requires: pip install pynacl\n";
+    } else {
+        w += "# Requires: pip install cryptography\n";
+    }
     w += "import sys\n";
     w += "\n";
     w += "try:\n";
@@ -395,6 +459,8 @@ std::string make_python_decrypt_wrapper(EncryptType type,
 
     if (type == EncryptType::ChaCha20) {
         w += "    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305\n";
+    } else if (type == EncryptType::XChaCha20) {
+        w += "    from nacl._sodium import ffi, lib\n";
     } else {
         w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
         w += "    from cryptography.hazmat.primitives import padding as sym_padding\n";
@@ -421,6 +487,14 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     if (type == EncryptType::ChaCha20) {
         w += "    _box = ChaCha20Poly1305(_key)\n";
         w += "    _pt = _box.decrypt(_nonce, _ct, None)\n";
+    } else if (type == EncryptType::XChaCha20) {
+        w += "    _pt_buf = ffi.new('unsigned char[]', len(_ct) - 16)\n";
+        w += "    _pt_len = ffi.new('unsigned long long *')\n";
+        w += "    if lib.crypto_aead_xchacha20poly1305_ietf_decrypt(\n";
+        w += "            _pt_buf, _pt_len, ffi.NULL,\n";
+        w += "            _ct, len(_ct), ffi.NULL, 0, _nonce, _key) != 0:\n";
+        w += "        raise ValueError('XChaCha20-Poly1305 decryption failed (bad key or nonce)')\n";
+        w += "    _pt = bytes(_pt_buf)[:_pt_len[0]]\n";
     } else {
         w += "    _cipher = Cipher(algorithms.AES(_key), modes.CBC(_iv))\n";
         w += "    _dec = _cipher.decryptor()\n";
@@ -431,7 +505,7 @@ std::string make_python_decrypt_wrapper(EncryptType type,
 
     w += "    exec(_pt.decode('utf-8'))\n";
 
-    if (type == EncryptType::ChaCha20) {
+    if (type == EncryptType::ChaCha20 || type == EncryptType::XChaCha20) {
         w += "except (ValueError, Exception) as e:\n";
         w += "    print(f'Error: decryption failed — {e}', file=sys.stderr)\n";
         w += "    print('The file may have been encrypted with a different key.', file=sys.stderr)\n";

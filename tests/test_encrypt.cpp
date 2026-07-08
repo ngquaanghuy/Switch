@@ -63,6 +63,7 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes192) == "aes-192");
     CHECK(encrypt_type_name(EncryptType::Aes256) == "aes-256");
     CHECK(encrypt_type_name(EncryptType::ChaCha20) == "chacha20");
+    CHECK(encrypt_type_name(EncryptType::XChaCha20) == "xchacha20");
 }
 
 // =========================================================================
@@ -285,6 +286,61 @@ TEST_CASE("chacha20: key validation") {
 }
 
 // =========================================================================
+// XChaCha20-Poly1305 encrypt / decrypt (IETF, 24-byte nonce)
+// =========================================================================
+
+TEST_CASE("xchacha20: encrypt produces ciphertext with 16-byte MAC overhead") {
+    // 32-byte key, 24-byte nonce
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000000000000000000000000000");
+    auto ct = encrypt(EncryptType::XChaCha20, bytes("hello world"), key, nonce);
+    CHECK(!ct.empty());
+    CHECK(ct.size() == 11 + 16); // plaintext + 16-byte Poly1305 MAC
+}
+
+TEST_CASE("xchacha20: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000000000000000000000000000");
+    std::string original = "XChaCha20-Poly1305 roundtrip test!";
+    auto ct = encrypt(EncryptType::XChaCha20, bytes(original), key, nonce);
+    auto pt = decrypt(EncryptType::XChaCha20, ct, key, nonce);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("xchacha20: roundtrip with empty input") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000000000000000000000000000");
+    auto ct = encrypt(EncryptType::XChaCha20, {}, key, nonce);
+    CHECK(ct.size() == 16); // just the MAC tag
+    auto pt = decrypt(EncryptType::XChaCha20, ct, key, nonce);
+    CHECK(pt.empty());
+}
+
+TEST_CASE("xchacha20: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto nonce = from_hex("000000000000000000000000000000000000000000000000");
+    auto ct = encrypt(EncryptType::XChaCha20, bytes("secret"), key, nonce);
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::XChaCha20, ct, wrong_key, nonce);
+    CHECK(pt.empty()); // MAC verification failed
+}
+
+TEST_CASE("xchacha20: key validation") {
+    auto nonce = from_hex("000000000000000000000000000000000000000000000000");
+    auto short_key = from_hex("0001020304050607"); // 8 bytes, need 32
+    auto ct = encrypt(EncryptType::XChaCha20, bytes("test"), short_key, nonce);
+    CHECK(ct.empty());
+}
+
+TEST_CASE("xchacha20: nonce validation") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto short_nonce = from_hex("000000000000000000000000"); // 12 bytes, need 24
+    auto ct = encrypt(EncryptType::XChaCha20, bytes("test"), key, short_nonce);
+    CHECK(ct.empty());
+}
+
+// =========================================================================
 // generate_random_iv
 // =========================================================================
 
@@ -364,11 +420,13 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
     struct TestCase { EncryptType type; std::vector<uint8_t> key; std::vector<uint8_t> iv; };
     auto key_chacha = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     auto nonce_chacha = from_hex("000000000000000000000000");
+    auto nonce_xchacha = from_hex("000000000000000000000000000000000000000000000000");
     std::vector<TestCase> tests = {
         {EncryptType::Aes128, key128, iv},
         {EncryptType::Aes192, key192, iv},
         {EncryptType::Aes256, key256, iv},
         {EncryptType::ChaCha20, key_chacha, nonce_chacha},
+        {EncryptType::XChaCha20, key_chacha, nonce_xchacha},
     };
 
     for (auto& tc : tests) {
@@ -387,7 +445,11 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
         in.close();
 
         CHECK(content.find("# Encrypted by Switch") != std::string::npos);
-        CHECK(content.find("from cryptography") != std::string::npos);
+        if (tc.type == EncryptType::XChaCha20) {
+            CHECK(content.find("from nacl") != std::string::npos);
+        } else {
+            CHECK(content.find("from cryptography") != std::string::npos);
+        }
         CHECK(content.find("exec(") != std::string::npos);
 
         std::remove(output_path.c_str());

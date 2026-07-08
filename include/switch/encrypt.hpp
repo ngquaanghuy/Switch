@@ -14,6 +14,7 @@ enum class EncryptType {
     Aes192,
     Aes256,
     ChaCha20,   // ChaCha20-Poly1305 AEAD (IETF, 12-byte nonce)
+    XChaCha20,  // XChaCha20-Poly1305 AEAD (IETF, 24-byte nonce)
 };
 
 // Convert hex string to byte vector.
