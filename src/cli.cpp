@@ -117,6 +117,9 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             // XChaCha20-Poly1305 AEAD (IETF, 24-byte nonce, libsodium backend)
             } else if (type_str == "xchacha20" || type_str == "XChaCha20" || type_str == "XCHACHA20") {
                 args.encrypt_type = switch_encrypt::EncryptType::XChaCha20;
+            // AES-256-GCM AEAD (12-byte IV, 16-byte auth tag, OpenSSL backend)
+            } else if (type_str == "aes-256-gcm" || type_str == "aes256gcm" || type_str == "AES-256-GCM" || type_str == "AES256GCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes256Gcm;
             } else {
                 std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -158,6 +161,8 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.key_gen_type = switch_encrypt::EncryptType::ChaCha20;
             } else if (kg_name == "xchacha20" || kg_name == "XChaCha20" || kg_name == "XCHACHA20") {
                 args.key_gen_type = switch_encrypt::EncryptType::XChaCha20;
+            } else if (kg_name == "aes-256-gcm" || kg_name == "aes256gcm" || kg_name == "AES-256-GCM" || kg_name == "AES256GCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes256Gcm;
             } else {
                 std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
@@ -255,13 +260,13 @@ void print_help() {
               << "                     Types: " << switch_encode::all_encode_names() << "\n"
               << "                     Output runs with: python output.py\n"
               << "  --encrypt <type>   Encrypt input .py into runnable encrypted .py\n"
-              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20\n"
+              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-256-gcm\n"
               << "                     Requires: --key <hex>\n"
               << "                     AES: --iv <hex> (optional, auto-generated)\n"
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"
               << "                     Output runs with: python output.py\n"
               << "  --key <hex>        Hex-encoded encryption key (required with --encrypt)\n"
-              << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES only, optional)\n"
+              << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES-CBC) / 12 bytes (AES-GCM), optional\n"
               << "  --nonce <hex>      Hex-encoded nonce, 12 bytes (ChaCha20) / 24 bytes (XChaCha20), optional\n"
               << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"

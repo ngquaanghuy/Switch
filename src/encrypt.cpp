@@ -57,12 +57,13 @@ std::string encrypt_type_name(EncryptType type) {
     case EncryptType::Aes256:    return "aes-256";
     case EncryptType::ChaCha20:  return "chacha20";
     case EncryptType::XChaCha20: return "xchacha20";
+    case EncryptType::Aes256Gcm: return "aes-256-gcm";
     }
     return "unknown";
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20, xchacha20";
+    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-256-gcm";
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -72,6 +73,7 @@ size_t expected_key_len(EncryptType type) {
     case EncryptType::Aes256:    return 32;
     case EncryptType::ChaCha20:  return 32;
     case EncryptType::XChaCha20: return 32;
+    case EncryptType::Aes256Gcm: return 32;
     }
     return 0;
 }
@@ -83,6 +85,7 @@ size_t expected_nonce_len(EncryptType type) {
     case EncryptType::Aes256:    return 16; // IV
     case EncryptType::ChaCha20:  return 12; // IETF nonce
     case EncryptType::XChaCha20: return 24; // XChaCha20 IETF nonce
+    case EncryptType::Aes256Gcm: return 12; // GCM standard IV
     }
     return 0;
 }
@@ -200,6 +203,79 @@ std::vector<uint8_t> aes_decrypt(const std::vector<uint8_t>& ciphertext,
     if (!ok) return {};
     plaintext.resize(out_len + final_len);
     return pkcs7_unpad(plaintext);
+}
+
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
+// AES-256-GCM AEAD encrypt / decrypt via OpenSSL EVP
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// GCM appends 16-byte auth tag to ciphertext.
+// Ciphertext = encrypted_data + 16_byte_tag. No padding needed.
+
+std::vector<uint8_t> aes_gcm_encrypt(const std::vector<uint8_t>& plaintext,
+                                     const std::vector<uint8_t>& key,
+                                     const std::vector<uint8_t>& iv) {
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+
+    std::vector<uint8_t> ciphertext(plaintext.size());
+    int out_len = 0;
+    int final_len = 0;
+    uint8_t tag[16] = {};
+
+    bool ok = true;
+    ok = ok && (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
+    ok = ok && (EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
+    ok = ok && (EVP_EncryptUpdate(ctx, ciphertext.data(), &out_len,
+                                  plaintext.data(), static_cast<int>(plaintext.size())) == 1);
+    ok = ok && (EVP_EncryptFinal_ex(ctx, ciphertext.data() + out_len, &final_len) == 1);
+    ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) == 1);
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    if (!ok) return {};
+    ciphertext.resize(out_len + final_len);
+    ciphertext.insert(ciphertext.end(), tag, tag + 16);
+    return ciphertext;
+}
+
+std::vector<uint8_t> aes_gcm_decrypt(const std::vector<uint8_t>& ciphertext,
+                                     const std::vector<uint8_t>& key,
+                                     const std::vector<uint8_t>& iv) {
+    constexpr size_t TAG_LEN = 16;
+    if (ciphertext.size() < TAG_LEN) return {};
+
+    size_t enc_len = ciphertext.size() - TAG_LEN;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+
+    std::vector<uint8_t> plaintext(enc_len);
+    int out_len = 0;
+    int final_len = 0;
+
+    bool ok = true;
+    ok = ok && (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
+    ok = ok && (EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
+    ok = ok && (EVP_DecryptUpdate(ctx, plaintext.data(), &out_len,
+                                  ciphertext.data(), static_cast<int>(enc_len)) == 1);
+    // Set expected tag
+    ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
+                                    const_cast<uint8_t*>(ciphertext.data() + enc_len)) == 1);
+    // Verify tag on finalize — returns 0 if tag mismatch
+    ok = ok && (EVP_DecryptFinal_ex(ctx, plaintext.data() + out_len, &final_len) == 1);
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    if (!ok) return {}; // tag verification failed
+    plaintext.resize(out_len + final_len);
+    return plaintext;
 }
 
 } // anonymous namespace
@@ -333,6 +409,8 @@ std::vector<uint8_t> encrypt(EncryptType type,
         return chacha20_encrypt(plaintext, key, iv_or_nonce);
     case EncryptType::XChaCha20:
         return xchacha20_encrypt(plaintext, key, iv_or_nonce);
+    case EncryptType::Aes256Gcm:
+        return aes_gcm_encrypt(plaintext, key, iv_or_nonce);
     }
     return {};
 }
@@ -355,6 +433,8 @@ std::vector<uint8_t> decrypt(EncryptType type,
         return chacha20_decrypt(ciphertext, key, iv_or_nonce);
     case EncryptType::XChaCha20:
         return xchacha20_decrypt(ciphertext, key, iv_or_nonce);
+    case EncryptType::Aes256Gcm:
+        return aes_gcm_decrypt(ciphertext, key, iv_or_nonce);
     }
     return {};
 }
@@ -461,6 +541,8 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305\n";
     } else if (type == EncryptType::XChaCha20) {
         w += "    from nacl._sodium import ffi, lib\n";
+    } else if (type == EncryptType::Aes256Gcm) {
+        w += "    from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n";
     } else {
         w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
         w += "    from cryptography.hazmat.primitives import padding as sym_padding\n";
@@ -495,6 +577,9 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "            _ct, len(_ct), ffi.NULL, 0, _nonce, _key) != 0:\n";
         w += "        raise ValueError('XChaCha20-Poly1305 decryption failed (bad key or nonce)')\n";
         w += "    _pt = bytes(_pt_buf)[:_pt_len[0]]\n";
+    } else if (type == EncryptType::Aes256Gcm) {
+        w += "    _box = AESGCM(_key)\n";
+        w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
     } else {
         w += "    _cipher = Cipher(algorithms.AES(_key), modes.CBC(_iv))\n";
         w += "    _dec = _cipher.decryptor()\n";

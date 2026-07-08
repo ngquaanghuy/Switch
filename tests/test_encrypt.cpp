@@ -64,6 +64,7 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes256) == "aes-256");
     CHECK(encrypt_type_name(EncryptType::ChaCha20) == "chacha20");
     CHECK(encrypt_type_name(EncryptType::XChaCha20) == "xchacha20");
+    CHECK(encrypt_type_name(EncryptType::Aes256Gcm) == "aes-256-gcm");
 }
 
 // =========================================================================
@@ -341,6 +342,79 @@ TEST_CASE("xchacha20: nonce validation") {
 }
 
 // =========================================================================
+// AES-256-GCM AEAD encrypt / decrypt (OpenSSL, 12-byte IV, 16-byte tag)
+// =========================================================================
+
+TEST_CASE("aes-256-gcm: encrypt produces ciphertext with 16-byte tag overhead") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes("hello world"), key, iv);
+    CHECK(!ct.empty());
+    CHECK(ct.size() == 11 + 16); // plaintext + 16-byte auth tag
+}
+
+TEST_CASE("aes-256-gcm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-256-GCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes256Gcm, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-gcm: roundtrip with empty input") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Gcm, {}, key, iv);
+    CHECK(ct.size() == 16); // just the auth tag
+    auto pt = decrypt(EncryptType::Aes256Gcm, ct, key, iv);
+    CHECK(pt.empty());
+}
+
+TEST_CASE("aes-256-gcm: roundtrip with binary data") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    std::vector<uint8_t> data = {0x00, 0x01, 0x02, 0x7F, 0x80, 0xFE, 0xFF};
+    auto ct = encrypt(EncryptType::Aes256Gcm, data, key, iv);
+    auto pt = decrypt(EncryptType::Aes256Gcm, ct, key, iv);
+    CHECK(pt == data);
+}
+
+TEST_CASE("aes-256-gcm: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes("secret"), key, iv);
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::Aes256Gcm, ct, wrong_key, iv);
+    CHECK(pt.empty()); // auth tag verification failed
+}
+
+TEST_CASE("aes-256-gcm: tampered ciphertext fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes("secret"), key, iv);
+    CHECK(ct.size() > 0);
+    ct[0] ^= 0xFF; // tamper
+    auto pt = decrypt(EncryptType::Aes256Gcm, ct, key, iv);
+    CHECK(pt.empty()); // auth tag verification failed
+}
+
+TEST_CASE("aes-256-gcm: key validation") {
+    auto iv = from_hex("000000000000000000000000");
+    auto short_key = from_hex("0001020304050607"); // 8 bytes, need 32
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes("test"), short_key, iv);
+    CHECK(ct.empty());
+}
+
+TEST_CASE("aes-256-gcm: iv validation") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto short_iv = from_hex("0000000000000000000000"); // 6 bytes, need 12
+    auto ct = encrypt(EncryptType::Aes256Gcm, bytes("test"), key, short_iv);
+    CHECK(ct.empty());
+}
+
+// =========================================================================
 // generate_random_iv
 // =========================================================================
 
@@ -421,12 +495,14 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
     auto key_chacha = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     auto nonce_chacha = from_hex("000000000000000000000000");
     auto nonce_xchacha = from_hex("000000000000000000000000000000000000000000000000");
+    auto iv_gcm = from_hex("000000000000000000000000");
     std::vector<TestCase> tests = {
         {EncryptType::Aes128, key128, iv},
         {EncryptType::Aes192, key192, iv},
         {EncryptType::Aes256, key256, iv},
         {EncryptType::ChaCha20, key_chacha, nonce_chacha},
         {EncryptType::XChaCha20, key_chacha, nonce_xchacha},
+        {EncryptType::Aes256Gcm, key256, iv_gcm},
     };
 
     for (auto& tc : tests) {
