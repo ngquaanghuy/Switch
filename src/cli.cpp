@@ -137,6 +137,31 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --key-generator <type>
+        if (arg == "--key-generator") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --key-generator requires an encryption type\n"
+                          << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
+                return std::nullopt;
+            }
+            std::string_view kg_name{argv[++i]};
+            if (kg_name == "aes-128" || kg_name == "aes128" || kg_name == "AES-128" || kg_name == "AES128") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes128;
+            } else if (kg_name == "aes-192" || kg_name == "aes192" || kg_name == "AES-192" || kg_name == "AES192") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes192;
+            } else if (kg_name == "aes-256" || kg_name == "aes256" || kg_name == "AES-256" || kg_name == "AES256") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes256;
+            } else if (kg_name == "chacha20" || kg_name == "ChaCha20" || kg_name == "CHACHA20") {
+                args.key_gen_type = switch_encrypt::EncryptType::ChaCha20;
+            } else {
+                std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
+                          << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
+                return std::nullopt;
+            }
+            args.cmd = Command::KeyGenerator;
+            continue;
+        }
+
         // --iv <hex> (AES only)
         if (arg == "--iv") {
             if (i + 1 >= argc) {
@@ -236,6 +261,9 @@ void print_help() {
               << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"
               << "  --encrypt-list     List all supported encryption types\n"
+              << "  --key-generator <type>\n"
+              << "                     Generate a random key for the given encryption type\n"
+              << "                     Types: " << switch_encrypt::all_encrypt_names() << "\n"
               << "\n"
               << "COMMANDS (planned)\n"
               << "  protect <file>     Encrypt and protect Python source\n"

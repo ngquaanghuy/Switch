@@ -48,6 +48,22 @@ int main(int argc, const char* argv[]) {
                   << "  " << switch_encrypt::all_encrypt_names() << "\n";
         return 0;
 
+    case switch_cli::Command::KeyGenerator: {
+        if (!args->key_gen_type) {
+            std::cerr << "switch: --key-generator requires an encryption type\n"
+                      << "Usage: switch --key-generator <type>\n";
+            return 1;
+        }
+        std::string key_hex = switch_encrypt::generate_key(*args->key_gen_type);
+        if (key_hex.empty()) {
+            std::cerr << "switch: failed to generate key for "
+                      << switch_encrypt::encrypt_type_name(*args->key_gen_type) << "\n";
+            return 1;
+        }
+        std::cout << key_hex << "\n";
+        return 0;
+    }
+
     case switch_cli::Command::Encode: {
         // Validate we have input file
         if (args->positional.empty()) {

@@ -422,3 +422,96 @@ TEST_CASE("encrypt_file e2e: nonexistent input path fails") {
     CHECK(ok == false);
     CHECK(error.find("cannot open") != std::string::npos);
 }
+
+// =========================================================================
+// --key-generator: CLI parse
+// =========================================================================
+
+TEST_CASE("cli parse: --key-generator aes-256") {
+    const char* argv[] = {"switch", "--key-generator", "aes-256"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    REQUIRE(args->key_gen_type.has_value());
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes256);
+}
+
+TEST_CASE("cli parse: --key-generator chacha20") {
+    const char* argv[] = {"switch", "--key-generator", "chacha20"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::ChaCha20);
+}
+
+TEST_CASE("cli parse: --key-generator case-insensitive") {
+    const char* argv[] = {"switch", "--key-generator", "AES-192"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes192);
+}
+
+TEST_CASE("cli parse: --key-generator without type returns nullopt") {
+    const char* argv[] = {"switch", "--key-generator"};
+    auto args = switch_cli::parse(2, argv);
+    CHECK(args == std::nullopt);
+}
+
+TEST_CASE("cli parse: --key-generator unknown type returns nullopt") {
+    const char* argv[] = {"switch", "--key-generator", "aes-512"};
+    auto args = switch_cli::parse(3, argv);
+    CHECK(args == std::nullopt);
+}
+
+// =========================================================================
+// --key-generator: generate_key unit tests
+// =========================================================================
+
+TEST_CASE("generate_key: returns correct-length hex for each type") {
+    // AES-128: 16 bytes → 32 hex chars
+    std::string key128 = switch_encrypt::generate_key(switch_encrypt::EncryptType::Aes128);
+    CHECK(key128.size() == 32);
+    CHECK(switch_encrypt::hex_to_bytes(key128).has_value());
+
+    // AES-192: 24 bytes → 48 hex chars
+    std::string key192 = switch_encrypt::generate_key(switch_encrypt::EncryptType::Aes192);
+    CHECK(key192.size() == 48);
+    CHECK(switch_encrypt::hex_to_bytes(key192).has_value());
+
+    // AES-256: 32 bytes → 64 hex chars
+    std::string key256 = switch_encrypt::generate_key(switch_encrypt::EncryptType::Aes256);
+    CHECK(key256.size() == 64);
+    CHECK(switch_encrypt::hex_to_bytes(key256).has_value());
+
+    // ChaCha20: 32 bytes → 64 hex chars
+    std::string keych = switch_encrypt::generate_key(switch_encrypt::EncryptType::ChaCha20);
+    CHECK(keych.size() == 64);
+    CHECK(switch_encrypt::hex_to_bytes(keych).has_value());
+}
+
+TEST_CASE("generate_key: generated key produces valid encrypt/decrypt round-trip") {
+    for (auto type : {switch_encrypt::EncryptType::Aes128,
+                      switch_encrypt::EncryptType::Aes192,
+                      switch_encrypt::EncryptType::Aes256,
+                      switch_encrypt::EncryptType::ChaCha20}) {
+        std::string key_hex = switch_encrypt::generate_key(type);
+        auto key = switch_encrypt::hex_to_bytes(key_hex);
+        REQUIRE(key.has_value());
+
+        std::vector<uint8_t> plaintext = {'h', 'e', 'l', 'l', 'o'};
+        std::vector<uint8_t> iv_or_nonce;
+        if (switch_encrypt::is_stream_cipher(type)) {
+            iv_or_nonce = switch_encrypt::generate_random_nonce(
+                switch_encrypt::expected_nonce_len(type));
+        } else {
+            iv_or_nonce = switch_encrypt::generate_random_iv();
+        }
+        REQUIRE(!iv_or_nonce.empty());
+
+        auto ct = switch_encrypt::encrypt(type, plaintext, *key, iv_or_nonce);
+        REQUIRE(!ct.empty());
+
+        auto pt = switch_encrypt::decrypt(type, ct, *key, iv_or_nonce);
+        REQUIRE(pt == plaintext);
+    }
+}

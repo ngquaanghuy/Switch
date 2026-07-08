@@ -58,6 +58,10 @@ std::vector<uint8_t> decrypt(EncryptType type,
 std::vector<uint8_t> generate_random_iv();
 std::vector<uint8_t> generate_random_nonce(size_t len);
 
+// Generate a random key for the given encryption type.
+// Returns hex string. Empty string on error.
+std::string generate_key(EncryptType type);
+
 // Wrap encrypted payload into a self-decryptable Python script.
 // The returned string is valid Python that, when run with `python3`,
 // decrypts and exec()s the original code.

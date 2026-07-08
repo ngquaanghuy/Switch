@@ -318,6 +318,33 @@ std::vector<uint8_t> generate_random_nonce(size_t len) {
 }
 
 // ---------------------------------------------------------------------------
+// Key generation
+// ---------------------------------------------------------------------------
+
+std::string generate_key(EncryptType type) {
+    size_t len = expected_key_len(type);
+    if (len == 0) return {};
+
+    std::vector<uint8_t> key(len);
+
+    if (is_stream_cipher(type)) {
+        randombytes_buf(key.data(), len);
+    } else {
+        if (RAND_bytes(key.data(), static_cast<int>(len)) != 1) return {};
+    }
+
+    // Convert to hex
+    static const char HEX[] = "0123456789abcdef";
+    std::string hex;
+    hex.reserve(len * 2);
+    for (uint8_t b : key) {
+        hex.push_back(HEX[b >> 4]);
+        hex.push_back(HEX[b & 0x0F]);
+    }
+    return hex;
+}
+
+// ---------------------------------------------------------------------------
 // Base64 encode (minimal, for Python wrapper)
 // ---------------------------------------------------------------------------
 

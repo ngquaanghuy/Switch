@@ -19,6 +19,7 @@ enum class Command {
     EncodeList,
     Encrypt,
     EncryptList,
+    KeyGenerator,
     Unknown,
 };
 
@@ -35,6 +36,7 @@ struct Args {
     std::optional<std::string> encrypt_iv;   // --iv <hex> (AES)
     std::optional<std::string> encrypt_nonce; // --nonce <hex> (ChaCha20/XChaCha20)
     std::optional<std::string> output_file;   // -o <output>
+    std::optional<switch_encrypt::EncryptType> key_gen_type; // --key-generator <type>
 };
 
 // Parse CLI arguments into structured Args.
