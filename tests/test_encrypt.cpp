@@ -64,6 +64,8 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes256) == "aes-256");
     CHECK(encrypt_type_name(EncryptType::ChaCha20) == "chacha20");
     CHECK(encrypt_type_name(EncryptType::XChaCha20) == "xchacha20");
+    CHECK(encrypt_type_name(EncryptType::Aes128Gcm) == "aes-128-gcm");
+    CHECK(encrypt_type_name(EncryptType::Aes192Gcm) == "aes-192-gcm");
     CHECK(encrypt_type_name(EncryptType::Aes256Gcm) == "aes-256-gcm");
 }
 
@@ -353,6 +355,26 @@ TEST_CASE("aes-256-gcm: encrypt produces ciphertext with 16-byte tag overhead") 
     CHECK(ct.size() == 11 + 16); // plaintext + 16-byte auth tag
 }
 
+TEST_CASE("aes-128-gcm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-128-GCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes128Gcm, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes128Gcm, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-192-gcm: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f1011121314151617");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-192-GCM roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes192Gcm, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes192Gcm, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
 TEST_CASE("aes-256-gcm: roundtrip") {
     auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     auto iv  = from_hex("000000000000000000000000");
@@ -502,6 +524,8 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
         {EncryptType::Aes256, key256, iv},
         {EncryptType::ChaCha20, key_chacha, nonce_chacha},
         {EncryptType::XChaCha20, key_chacha, nonce_xchacha},
+        {EncryptType::Aes128Gcm, key128, iv_gcm},
+        {EncryptType::Aes192Gcm, key192, iv_gcm},
         {EncryptType::Aes256Gcm, key256, iv_gcm},
     };
 

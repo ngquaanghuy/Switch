@@ -15,6 +15,8 @@ enum class EncryptType {
     Aes256,
     ChaCha20,   // ChaCha20-Poly1305 AEAD (IETF, 12-byte nonce)
     XChaCha20,  // XChaCha20-Poly1305 AEAD (IETF, 24-byte nonce)
+    Aes128Gcm,  // AES-128-GCM AEAD (12-byte IV, 16-byte auth tag)
+    Aes192Gcm,  // AES-192-GCM AEAD (12-byte IV, 16-byte auth tag)
     Aes256Gcm,  // AES-256-GCM AEAD (12-byte IV, 16-byte auth tag)
 };
 

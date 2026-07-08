@@ -144,6 +144,26 @@ TEST_CASE("cli parse: --encrypt AES-256-GCM (mixed case)") {
     CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes256Gcm);
 }
 
+TEST_CASE("cli parse: --encrypt aes-128-gcm") {
+    const char* key = "000102030405060708090a0b0c0d0e0f";
+    const char* argv[] = {"switch", "--encrypt", "aes-128-gcm", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes128Gcm);
+}
+
+TEST_CASE("cli parse: --encrypt aes-192-gcm") {
+    const char* key = "000102030405060708090a0b0c0d0e0f1011121314151617";
+    const char* argv[] = {"switch", "--encrypt", "aes-192-gcm", "in.py",
+                          "--key", key};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    CHECK(args->encrypt_type == switch_encrypt::EncryptType::Aes192Gcm);
+}
+
 TEST_CASE("cli parse: --encrypt aes-256-gcm with --iv (12 bytes)") {
     const char* iv = "000000000000000000000000";
     const char* argv[] = {"switch", "--encrypt", "aes-256-gcm", "in.py",
@@ -583,6 +603,22 @@ TEST_CASE("cli parse: --key-generator aes-256-gcm") {
     REQUIRE(args.has_value());
     CHECK(args->cmd == switch_cli::Command::KeyGenerator);
     CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes256Gcm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-128-gcm") {
+    const char* argv[] = {"switch", "--key-generator", "aes-128-gcm"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes128Gcm);
+}
+
+TEST_CASE("cli parse: --key-generator aes-192-gcm") {
+    const char* argv[] = {"switch", "--key-generator", "aes-192-gcm"};
+    auto args = switch_cli::parse(3, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::KeyGenerator);
+    CHECK(*args->key_gen_type == switch_encrypt::EncryptType::Aes192Gcm);
 }
 
 TEST_CASE("cli parse: --key-generator case-insensitive") {

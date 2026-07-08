@@ -117,7 +117,11 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             // XChaCha20-Poly1305 AEAD (IETF, 24-byte nonce, libsodium backend)
             } else if (type_str == "xchacha20" || type_str == "XChaCha20" || type_str == "XCHACHA20") {
                 args.encrypt_type = switch_encrypt::EncryptType::XChaCha20;
-            // AES-256-GCM AEAD (12-byte IV, 16-byte auth tag, OpenSSL backend)
+            // AES-GCM AEAD (12-byte IV, 16-byte auth tag, OpenSSL backend)
+            } else if (type_str == "aes-128-gcm" || type_str == "aes128gcm" || type_str == "AES-128-GCM" || type_str == "AES128GCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes128Gcm;
+            } else if (type_str == "aes-192-gcm" || type_str == "aes192gcm" || type_str == "AES-192-GCM" || type_str == "AES192GCM") {
+                args.encrypt_type = switch_encrypt::EncryptType::Aes192Gcm;
             } else if (type_str == "aes-256-gcm" || type_str == "aes256gcm" || type_str == "AES-256-GCM" || type_str == "AES256GCM") {
                 args.encrypt_type = switch_encrypt::EncryptType::Aes256Gcm;
             } else {
@@ -161,6 +165,10 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 args.key_gen_type = switch_encrypt::EncryptType::ChaCha20;
             } else if (kg_name == "xchacha20" || kg_name == "XChaCha20" || kg_name == "XCHACHA20") {
                 args.key_gen_type = switch_encrypt::EncryptType::XChaCha20;
+            } else if (kg_name == "aes-128-gcm" || kg_name == "aes128gcm" || kg_name == "AES-128-GCM" || kg_name == "AES128GCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes128Gcm;
+            } else if (kg_name == "aes-192-gcm" || kg_name == "aes192gcm" || kg_name == "AES-192-GCM" || kg_name == "AES192GCM") {
+                args.key_gen_type = switch_encrypt::EncryptType::Aes192Gcm;
             } else if (kg_name == "aes-256-gcm" || kg_name == "aes256gcm" || kg_name == "AES-256-GCM" || kg_name == "AES256GCM") {
                 args.key_gen_type = switch_encrypt::EncryptType::Aes256Gcm;
             } else {
@@ -260,7 +268,7 @@ void print_help() {
               << "                     Types: " << switch_encode::all_encode_names() << "\n"
               << "                     Output runs with: python output.py\n"
               << "  --encrypt <type>   Encrypt input .py into runnable encrypted .py\n"
-              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-256-gcm\n"
+              << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm\n"
               << "                     Requires: --key <hex>\n"
               << "                     AES: --iv <hex> (optional, auto-generated)\n"
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"

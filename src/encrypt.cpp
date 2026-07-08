@@ -57,13 +57,15 @@ std::string encrypt_type_name(EncryptType type) {
     case EncryptType::Aes256:    return "aes-256";
     case EncryptType::ChaCha20:  return "chacha20";
     case EncryptType::XChaCha20: return "xchacha20";
+    case EncryptType::Aes128Gcm: return "aes-128-gcm";
+    case EncryptType::Aes192Gcm: return "aes-192-gcm";
     case EncryptType::Aes256Gcm: return "aes-256-gcm";
     }
     return "unknown";
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-256-gcm";
+    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm";
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -73,6 +75,8 @@ size_t expected_key_len(EncryptType type) {
     case EncryptType::Aes256:    return 32;
     case EncryptType::ChaCha20:  return 32;
     case EncryptType::XChaCha20: return 32;
+    case EncryptType::Aes128Gcm: return 16;
+    case EncryptType::Aes192Gcm: return 24;
     case EncryptType::Aes256Gcm: return 32;
     }
     return 0;
@@ -85,6 +89,8 @@ size_t expected_nonce_len(EncryptType type) {
     case EncryptType::Aes256:    return 16; // IV
     case EncryptType::ChaCha20:  return 12; // IETF nonce
     case EncryptType::XChaCha20: return 24; // XChaCha20 IETF nonce
+    case EncryptType::Aes128Gcm: return 12; // GCM standard IV
+    case EncryptType::Aes192Gcm: return 12; // GCM standard IV
     case EncryptType::Aes256Gcm: return 12; // GCM standard IV
     }
     return 0;
@@ -105,6 +111,15 @@ const EVP_CIPHER* get_evp_cipher(EncryptType type) {
     case EncryptType::Aes128: return EVP_aes_128_cbc();
     case EncryptType::Aes192: return EVP_aes_192_cbc();
     case EncryptType::Aes256: return EVP_aes_256_cbc();
+    default: return nullptr;
+    }
+}
+
+const EVP_CIPHER* get_evp_gcm_cipher(EncryptType type) {
+    switch (type) {
+    case EncryptType::Aes128Gcm: return EVP_aes_128_gcm();
+    case EncryptType::Aes192Gcm: return EVP_aes_192_gcm();
+    case EncryptType::Aes256Gcm: return EVP_aes_256_gcm();
     default: return nullptr;
     }
 }
@@ -218,7 +233,11 @@ namespace {
 
 std::vector<uint8_t> aes_gcm_encrypt(const std::vector<uint8_t>& plaintext,
                                      const std::vector<uint8_t>& key,
-                                     const std::vector<uint8_t>& iv) {
+                                     const std::vector<uint8_t>& iv,
+                                     EncryptType type) {
+    const EVP_CIPHER* cipher = get_evp_gcm_cipher(type);
+    if (!cipher) return {};
+
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) return {};
 
@@ -228,7 +247,7 @@ std::vector<uint8_t> aes_gcm_encrypt(const std::vector<uint8_t>& plaintext,
     uint8_t tag[16] = {};
 
     bool ok = true;
-    ok = ok && (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
     ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
     ok = ok && (EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
     ok = ok && (EVP_EncryptUpdate(ctx, ciphertext.data(), &out_len,
@@ -246,7 +265,11 @@ std::vector<uint8_t> aes_gcm_encrypt(const std::vector<uint8_t>& plaintext,
 
 std::vector<uint8_t> aes_gcm_decrypt(const std::vector<uint8_t>& ciphertext,
                                      const std::vector<uint8_t>& key,
-                                     const std::vector<uint8_t>& iv) {
+                                     const std::vector<uint8_t>& iv,
+                                     EncryptType type) {
+    const EVP_CIPHER* cipher = get_evp_gcm_cipher(type);
+    if (!cipher) return {};
+
     constexpr size_t TAG_LEN = 16;
     if (ciphertext.size() < TAG_LEN) return {};
 
@@ -260,7 +283,7 @@ std::vector<uint8_t> aes_gcm_decrypt(const std::vector<uint8_t>& ciphertext,
     int final_len = 0;
 
     bool ok = true;
-    ok = ok && (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
     ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
     ok = ok && (EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
     ok = ok && (EVP_DecryptUpdate(ctx, plaintext.data(), &out_len,
@@ -409,8 +432,10 @@ std::vector<uint8_t> encrypt(EncryptType type,
         return chacha20_encrypt(plaintext, key, iv_or_nonce);
     case EncryptType::XChaCha20:
         return xchacha20_encrypt(plaintext, key, iv_or_nonce);
+    case EncryptType::Aes128Gcm:
+    case EncryptType::Aes192Gcm:
     case EncryptType::Aes256Gcm:
-        return aes_gcm_encrypt(plaintext, key, iv_or_nonce);
+        return aes_gcm_encrypt(plaintext, key, iv_or_nonce, type);
     }
     return {};
 }
@@ -433,8 +458,10 @@ std::vector<uint8_t> decrypt(EncryptType type,
         return chacha20_decrypt(ciphertext, key, iv_or_nonce);
     case EncryptType::XChaCha20:
         return xchacha20_decrypt(ciphertext, key, iv_or_nonce);
+    case EncryptType::Aes128Gcm:
+    case EncryptType::Aes192Gcm:
     case EncryptType::Aes256Gcm:
-        return aes_gcm_decrypt(ciphertext, key, iv_or_nonce);
+        return aes_gcm_decrypt(ciphertext, key, iv_or_nonce, type);
     }
     return {};
 }
