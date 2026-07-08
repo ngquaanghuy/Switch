@@ -88,18 +88,6 @@ bool is_stream_cipher(EncryptType type) {
     return type == EncryptType::ChaCha20;
 }
 
-std::string encrypt_library_name(EncryptType type) {
-    switch (type) {
-    case EncryptType::Aes128:
-    case EncryptType::Aes192:
-    case EncryptType::Aes256:
-        return "OpenSSL";
-    case EncryptType::ChaCha20:
-        return "libsodium";
-    }
-    return "unknown";
-}
-
 // ---------------------------------------------------------------------------
 // AES cipher selection (OpenSSL)
 // ---------------------------------------------------------------------------
@@ -383,7 +371,6 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     } else {
         w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
         w += "    from cryptography.hazmat.primitives import padding as sym_padding\n";
-        w += "    from cryptography.hazmat.backends import default_backend\n";
     }
 
     w += "except ImportError:\n";
@@ -402,26 +389,33 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     }
 
     w += "\n";
+    w += "try:\n";
 
     if (type == EncryptType::ChaCha20) {
-        w += "_box = ChaCha20Poly1305(_key)\n";
-        w += "_pt = _box.decrypt(_nonce, _ct, None)\n";
+        w += "    _box = ChaCha20Poly1305(_key)\n";
+        w += "    _pt = _box.decrypt(_nonce, _ct, None)\n";
     } else {
-        w += "_cipher = Cipher(algorithms.AES(_key), modes.CBC(_iv), backend=default_backend())\n";
-        w += "_dec = _cipher.decryptor()\n";
-        w += "_pt = _dec.update(_ct) + _dec.finalize()\n";
-        w += "\n";
-        w += "_unpad = sym_padding.PKCS7(128).unpadder()\n";
-        w += "_pt = _unpad.update(_pt) + _unpad.finalize()\n";
+        w += "    _cipher = Cipher(algorithms.AES(_key), modes.CBC(_iv))\n";
+        w += "    _dec = _cipher.decryptor()\n";
+        w += "    _pt = _dec.update(_ct) + _dec.finalize()\n";
+        w += "    _unpad = sym_padding.PKCS7(128).unpadder()\n";
+        w += "    _pt = _unpad.update(_pt) + _unpad.finalize()\n";
     }
 
-    w += "\n";
-    w += "try:\n";
     w += "    exec(_pt.decode('utf-8'))\n";
-    w += "except UnicodeDecodeError:\n";
-    w += "    print('Error: decrypted data is not valid UTF-8.', file=sys.stderr)\n";
-    w += "    print('The file may have been encrypted with a different key.', file=sys.stderr)\n";
-    w += "    sys.exit(1)\n";
+
+    if (type == EncryptType::ChaCha20) {
+        w += "except (ValueError, Exception) as e:\n";
+        w += "    print(f'Error: decryption failed — {e}', file=sys.stderr)\n";
+        w += "    print('The file may have been encrypted with a different key.', file=sys.stderr)\n";
+        w += "    sys.exit(1)\n";
+    } else {
+        w += "except ValueError as e:\n";
+        w += "    print(f'Error: decryption failed — {e}', file=sys.stderr)\n";
+        w += "    print('The file may have been encrypted with a different key.', file=sys.stderr)\n";
+        w += "    sys.exit(1)\n";
+    }
+
     return w;
 }
 
@@ -453,20 +447,20 @@ bool encrypt_file(EncryptType type,
     }
     in.close();
 
-    // 2. Encrypt
-    std::vector<uint8_t> ciphertext = encrypt(type, data, key, iv_or_nonce);
-    if (ciphertext.empty() && !data.empty()) {
-        error_msg = "encryption failed";
-        return false;
-    }
-
-    // 3. Safe key trim — use full key for stream ciphers (always 32 bytes)
+    // 2. Safe key trim — validate key length before encryption
     size_t key_len = expected_key_len(type);
     if (key.size() < key_len) {
         error_msg = "key too short for " + encrypt_type_name(type);
         return false;
     }
     std::vector<uint8_t> key_trimmed(key.begin(), key.begin() + key_len);
+
+    // 3. Encrypt
+    std::vector<uint8_t> ciphertext = encrypt(type, data, key, iv_or_nonce);
+    if (ciphertext.empty()) {
+        error_msg = "encryption failed";
+        return false;
+    }
 
     // 4. Base64-encode ciphertext, key, and IV/nonce for embedding
     std::string b64_ct   = base64_encode(ciphertext);

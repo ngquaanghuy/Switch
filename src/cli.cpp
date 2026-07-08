@@ -137,20 +137,28 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
-        // --iv <hex>
+        // --iv <hex> (AES only)
         if (arg == "--iv") {
             if (i + 1 >= argc) {
                 std::cerr << "switch: --iv requires a hex-encoded IV string\n";
+                return std::nullopt;
+            }
+            if (args.encrypt_type == switch_encrypt::EncryptType::ChaCha20) {
+                std::cerr << "switch: --iv is not valid for ChaCha20 (use --nonce instead)\n";
                 return std::nullopt;
             }
             args.encrypt_iv = argv[++i];
             continue;
         }
 
-        // --nonce <hex> (for ChaCha20/XChaCha20)
+        // --nonce <hex> (ChaCha20 only)
         if (arg == "--nonce") {
             if (i + 1 >= argc) {
                 std::cerr << "switch: --nonce requires a hex-encoded nonce string\n";
+                return std::nullopt;
+            }
+            if (args.encrypt_type && args.encrypt_type != switch_encrypt::EncryptType::ChaCha20) {
+                std::cerr << "switch: --nonce is only valid for ChaCha20 (use --iv for AES)\n";
                 return std::nullopt;
             }
             args.encrypt_nonce = argv[++i];

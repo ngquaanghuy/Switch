@@ -36,13 +36,9 @@ size_t expected_nonce_len(EncryptType type);
 // Check if type is a stream cipher (ChaCha20/XChaCha20).
 bool is_stream_cipher(EncryptType type);
 
-// Get the library name used for encryption.
-std::string encrypt_library_name(EncryptType type);
-
 // Encrypt plaintext.
 // AES: AES-CBC + PKCS7 padding. key=16/24/32 bytes, iv=16 bytes.
-// ChaCha20: raw stream cipher (no padding, no MAC). key=32 bytes, nonce=12 bytes.
-// XChaCha20: AEAD with Poly1305 MAC. key=32 bytes, nonce=24 bytes. Ciphertext = plaintext + 16-byte MAC.
+// ChaCha20: ChaCha20-Poly1305 AEAD (IETF). key=32 bytes, nonce=12 bytes. Ciphertext = plaintext + 16-byte MAC.
 // Returns ciphertext. Empty on error.
 std::vector<uint8_t> encrypt(EncryptType type,
                               const std::vector<uint8_t>& plaintext,
@@ -51,15 +47,14 @@ std::vector<uint8_t> encrypt(EncryptType type,
 
 // Decrypt ciphertext.
 // AES: AES-CBC + PKCS7 unpadding.
-// ChaCha20: XOR again (stream cipher).
-// XChaCha20: AEAD decrypt with MAC verification.
+// ChaCha20: ChaCha20-Poly1305 AEAD decrypt with MAC verification.
 // Returns plaintext bytes. Empty on error.
 std::vector<uint8_t> decrypt(EncryptType type,
                               const std::vector<uint8_t>& ciphertext,
                               const std::vector<uint8_t>& key,
                               const std::vector<uint8_t>& iv_or_nonce);
 
-// Generate random IV (16 bytes for AES) or nonce (12/24 bytes for ChaCha20/XChaCha20).
+// Generate random IV (16 bytes for AES) or nonce (12 bytes for ChaCha20).
 std::vector<uint8_t> generate_random_iv();
 std::vector<uint8_t> generate_random_nonce(size_t len);
 
