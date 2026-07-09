@@ -12,6 +12,7 @@ enum class ObfType {
     NameMangling,   // Rename variables/functions/classes to short obfuscated names
     StringEncoding, // Encode string literals (chr(), bytes(), base64)
     DocStrip,       // Remove docstrings and comments
+    Literal,        // Obfuscate numeric/boolean/None literals
 };
 
 // Parse an obfuscation technique name (case-insensitive).
