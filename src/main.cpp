@@ -120,13 +120,13 @@ int main(int argc, const char* argv[]) {
             in.close();
 
             for (auto obf_type : args->obf_types) {
-                std::string result = switch_obf::obfuscate(obf_type, src);
-                if (result.empty()) {
+                auto result = switch_obf::obfuscate(obf_type, src);
+                if (!result) {
                     std::cerr << "switch: obfuscation failed for "
                               << switch_obf::obf_type_name(obf_type) << "\n";
                     return 1;
                 }
-                src = result;
+                src = *result;
             }
 
             // Write obfuscated source to temp file
@@ -308,13 +308,13 @@ int main(int argc, const char* argv[]) {
             in.close();
 
             for (auto obf_type : args->obf_types) {
-                std::string result = switch_obf::obfuscate(obf_type, src);
-                if (result.empty()) {
+                auto result = switch_obf::obfuscate(obf_type, src);
+                if (!result) {
                     std::cerr << "switch: obfuscation failed for "
                               << switch_obf::obf_type_name(obf_type) << "\n";
                     return 1;
                 }
-                src = result;
+                src = *result;
             }
 
             obf_tmp = "/tmp/switch_obf_enc_XXXXXX";
@@ -374,13 +374,13 @@ int main(int argc, const char* argv[]) {
         // Apply obfuscation techniques in sequence
         std::string current = source;
         for (auto obf_type : args->obf_types) {
-            std::string result = switch_obf::obfuscate(obf_type, current);
-            if (result.empty()) {
+            auto result = switch_obf::obfuscate(obf_type, current);
+            if (!result) {
                 std::cerr << "switch: obfuscation failed for "
                           << switch_obf::obf_type_name(obf_type) << "\n";
                 return 1;
             }
-            current = result;
+            current = *result;
         }
 
         // Derive output path

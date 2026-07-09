@@ -26,44 +26,49 @@ class LiteralObfuscator(ast.NodeTransformer):
         random.seed()  # Non-deterministic for variety
 
     def _obfuscate_int(self, n):
-        """Convert integer to an obfuscated expression."""
+        """Convert integer to an obfuscated expression.
+
+        Works with abs(n) for strategy selection, then negates the result if n < 0.
+        """
+        sign = -1 if n < 0 else 1
+        a = abs(n)
         strategies = []
 
         # Strategy 1: eval() with hex/octal/binary string
-        if n > 10:
+        if a > 10:
             strategies.append(ast.Call(
                 func=ast.Name(id='eval', ctx=ast.Load()),
-                args=[ast.Constant(value=hex(n))],
+                args=[ast.Constant(value=hex(a))],
                 keywords=[]
             ))
-            if n > 7:
+            if a > 7:
                 strategies.append(ast.Call(
                     func=ast.Name(id='eval', ctx=ast.Load()),
-                    args=[ast.Constant(value=oct(n))],
+                    args=[ast.Constant(value=oct(a))],
                     keywords=[]
                 ))
-            if n > 1:
+            if a > 1:
                 strategies.append(ast.Call(
                     func=ast.Name(id='eval', ctx=ast.Load()),
-                    args=[ast.Constant(value=bin(n))],
+                    args=[ast.Constant(value=bin(a))],
                     keywords=[]
                 ))
 
         # Strategy 2: multiplication of factors
-        if n > 1:
-            for i in range(2, min(int(math.isqrt(abs(n))) + 1, 20)):
-                if n % i == 0 and i > 1:
+        if a > 1:
+            for i in range(2, min(int(math.isqrt(a)) + 1, 20)):
+                if a % i == 0 and i > 1:
                     strategies.append(ast.BinOp(
                         left=ast.Constant(value=i),
                         op=ast.Mult(),
-                        right=ast.Constant(value=n // i)
+                        right=ast.Constant(value=a // i)
                     ))
 
         # Strategy 3: power expression
-        if n > 1:
+        if a > 1:
             for base in range(2, 10):
                 for exp in range(2, 6):
-                    if base ** exp == n:
+                    if base ** exp == a:
                         strategies.append(ast.BinOp(
                             left=ast.Constant(value=base),
                             op=ast.Pow(),
@@ -71,56 +76,37 @@ class LiteralObfuscator(ast.NodeTransformer):
                         ))
 
         # Strategy 4: addition/subtraction
-        if n > 5:
-            half = n // 2
+        if a > 5:
+            half = a // 2
             strategies.append(ast.BinOp(
                 left=ast.Constant(value=half),
                 op=ast.Add(),
-                right=ast.Constant(value=n - half)
+                right=ast.Constant(value=a - half)
             ))
-        if n > 2:
+        if a > 2:
             strategies.append(ast.BinOp(
-                left=ast.Constant(value=n + 1),
+                left=ast.Constant(value=a + 1),
                 op=ast.Sub(),
                 right=ast.Constant(value=1)
             ))
 
-        # Strategy 5: bit shift
-        if n > 0 and (n & (n - 1)) == 0 and n > 1:
-            # n is power of 2
-            exp = n.bit_length() - 1
+        # Strategy 5: bit shift (only for powers of 2)
+        if a > 1 and (a & (a - 1)) == 0:
+            exp = a.bit_length() - 1
             strategies.append(ast.BinOp(
                 left=ast.Constant(value=1),
                 op=ast.LShift(),
                 right=ast.Constant(value=exp)
             ))
-        elif n > 3:
-            for shift in range(1, 8):
-                shifted = n >> shift
-                remainder = n - (shifted << shift)
-                if shifted > 0 and remainder >= 0:
-                    if remainder == 0:
-                        strategies.append(ast.BinOp(
-                            left=ast.Constant(value=shifted),
-                            op=ast.LShift(),
-                            right=ast.Constant(value=shift)
-                        ))
-                    else:
-                        strategies.append(ast.BinOp(
-                            left=ast.BinOp(
-                                left=ast.Constant(value=shifted),
-                                op=ast.LShift(),
-                                right=ast.Constant(value=shift)
-                            ),
-                            op=ast.Add(),
-                            right=ast.Constant(value=remainder)
-                        ))
 
         if not strategies:
             return ast.Constant(value=n)
 
-        # Pick a random strategy
-        return random.choice(strategies)
+        expr = random.choice(strategies)
+        # Negate if original was negative
+        if sign < 0:
+            return ast.UnaryOp(op=ast.USub(), operand=expr)
+        return expr
 
     def _obfuscate_float(self, f):
         """Convert float to obfuscated expression."""
@@ -131,14 +117,12 @@ class LiteralObfuscator(ast.NodeTransformer):
                 args=[self._obfuscate_int(int(f))],
                 keywords=[]
             )
-        # For non-integer floats, try multiplication
-        strategies = []
-        strategies.append(ast.BinOp(
+        # Decompose into integer part + fractional part: 3.14 → 3 + 0.14
+        return ast.BinOp(
             left=ast.Constant(value=float(int(f))),
             op=ast.Add(),
             right=ast.Constant(value=round(f - int(f), 10))
-        ))
-        return random.choice(strategies) if strategies else ast.Constant(value=f)
+        )
 
     def visit_Constant(self, node):
         if isinstance(node.value, bool):

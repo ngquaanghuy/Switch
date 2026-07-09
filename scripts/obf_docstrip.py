@@ -80,7 +80,9 @@ def remove_comments(source):
                     in_triple_quote = True
                     triple_quote_char = tq
                     cleaned.append(line[i])
-                    i += 1
+                    cleaned.append(line[i+1])
+                    cleaned.append(line[i+2])
+                    i += 3
                     continue
                 elif tq == triple_quote_char:
                     in_triple_quote = False

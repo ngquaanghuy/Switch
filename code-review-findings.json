@@ -1,83 +1,128 @@
 [
   {
     "id": "F1",
-    "severity": "high",
+    "severity": "critical",
     "category": "correctness",
-    "file": "include/switch/encrypt.hpp",
-    "line": 44,
-    "summary": "encrypt.hpp comment incorrectly describes ChaCha20 as 'raw stream cipher (no padding, no MAC)' — the code actually uses ChaCha20-Poly1305 AEAD with a Poly1305 MAC",
-    "failure_scenario": "A developer reading this header would believe ChaCha20 mode produces unauthenticated ciphertext. The comment directly contradicts encrypt.cpp:222-242 which appends a 16-byte Poly1305 MAC. A future contributor could add a code path relying on 'no MAC' behavior, producing insecure output."
+    "file": "scripts/obf_docstrip.py",
+    "line": 82,
+    "summary": "Opening triple-quote only appends 1 of 3 characters in remove_comments(), corrupting multi-line string literals",
+    "failure_scenario": "Input: x = '''multi\\nline''' or x = \"\"\"doc\"\"\". After ast.unparse() produces triple-quoted string, line 82 appends only line[i] (the first quote char) then advances i+=1 and continues. The remaining two quote characters of the opening delimiter are lost. Closing triple-quote at lines 88-92 correctly appends all 3 chars. Result: unmatched opening single quote → SyntaxError in output."
   },
   {
     "id": "F2",
     "severity": "high",
     "category": "correctness",
-    "file": "include/switch/encrypt.hpp",
-    "line": 45,
-    "summary": "encrypt.hpp comment references 'XChaCha20: AEAD with Poly1305 MAC...nonce=24 bytes' but XChaCha20 is not implemented — only ChaCha20-Poly1305 IETF with 12-byte nonce exists",
-    "failure_scenario": "The comment creates a false impression XChaCha20 is supported. The CLI (cli.cpp:115) only accepts 'chacha20'; expected_nonce_len returns 12 for ChaCha20. No XChaCha20 enum variant exists. A user expecting 24-byte nonce support would be confused."
+    "file": "scripts/obf_literal.py",
+    "line": 170,
+    "summary": "_obfuscate_int() silently skips all negative integers (abs(n)>=2) without obfuscating them",
+    "failure_scenario": "Input: x = -42. visit_Constant passes n=-42 to _obfuscate_int (abs(-42)>=2). All strategy branches check n>1, n>2, n>3, n>5, n>10 — all False for negative numbers. strategies list stays empty. Line 188 returns ast.Constant(value=-42) unchanged. Negative literals are never obfuscated despite the function being called for them."
   },
   {
     "id": "F3",
-    "severity": "critical",
+    "severity": "high",
     "category": "correctness",
-    "file": "src/encrypt.cpp",
-    "line": 406,
-    "summary": "Generated Python decrypt wrapper for ChaCha20 has no try-except around ChaCha20Poly1305.decrypt() — MAC verification failure throws unhandled InvalidTag exception",
-    "failure_scenario": "User runs output.py with wrong key: Python throws 'cryptography.exceptions.InvalidTag' with full traceback. AES path has same issue: PaddingError from unpadding also leaks a raw traceback. Only exec()/decode is caught (line 419)."
+    "file": "src/obfuscate.cpp",
+    "line": 128,
+    "summary": "write() return value not checked — partial write silently truncates input to Python script",
+    "failure_scenario": "Under disk pressure or interrupted I/O, write(fd_in, source.data(), source.size()) may write fewer bytes than source.size(). The truncated source file is then fed to the Python script, which processes only the prefix. The resulting obfuscated output is silently incomplete with no error."
   },
   {
     "id": "F4",
-    "severity": "medium",
+    "severity": "high",
     "category": "correctness",
-    "file": "src/encrypt.cpp",
-    "line": 384,
-    "summary": "Generated Python wrapper uses deprecated cryptography APIs: 'from cryptography.hazmat.backends import default_backend' and backend= parameter to Cipher()",
-    "failure_scenario": "In cryptography >= 42.0.0 the backend parameter is deprecated. Current versions still accept it, but future removal would break all previously generated wrappers. Should omit default_backend import and backend= argument."
+    "file": "src/obfuscate.cpp",
+    "line": 146,
+    "summary": "fread() return value discarded — result may contain NUL bytes from initial resize()",
+    "failure_scenario": "If fread reads fewer bytes than fsize (disk error, signal), the tail of result remains zero-initialized from resize(). The caller receives Python source containing NUL characters, which downstream execution will reject or silently corrupt."
   },
   {
     "id": "F5",
     "severity": "high",
     "category": "correctness",
-    "file": "src/cli.cpp",
-    "line": 140,
-    "summary": "--iv and --nonce are parsed independently without cipher-type validation — --nonce is silently accepted for AES and --iv silently accepted for ChaCha20",
-    "failure_scenario": "User runs: switch --encrypt chacha20 file.py --key <hex> --iv <hex>. CLI parses OK, --iv value is silently discarded, nonce is auto-generated. User has no idea their IV was dropped. Same in reverse: --nonce with AES silently ignored."
+    "file": "src/obfuscate.cpp",
+    "line": 103,
+    "summary": "obfuscate() returns empty string on error — indistinguishable from success for empty source",
+    "failure_scenario": "Script not found, Python crash, and empty input all produce empty string. Caller checks result.empty() and reports 'obfuscation failed' — cannot distinguish between 'script missing' vs 'Python crashed' vs 'bad input'. Installed binary without scripts/ directory silently produces empty output file."
   },
   {
     "id": "F6",
-    "severity": "low",
+    "severity": "high",
     "category": "correctness",
-    "file": "tests/test_cli_encrypt.cpp",
-    "line": 240,
-    "summary": "WEXITSTATUS() is POSIX-only macro — test fails to compile on Windows/MSVC (same issue in test_cli_encode.cpp lines 151,176,206,236 and this file lines 267,308,351,386)",
-    "failure_scenario": "Building tests on Windows with MSVC produces compilation error: WEXITSTATUS undefined. Should be guarded with #ifdef or use a platform abstraction."
+    "file": "src/obfuscate.cpp",
+    "line": 133,
+    "summary": "Python stderr suppressed (2>/dev/null) — all diagnostic information silently lost",
+    "failure_scenario": "Python script crashes with ImportError, SyntaxError, or runtime exception. The system() call returns nonzero, result is empty, and the user gets 'obfuscation failed for <type>' with zero diagnostic output. No way to tell if the issue is missing Python, broken script, or bad input."
   },
   {
     "id": "F7",
-    "severity": "medium",
+    "severity": "high",
     "category": "correctness",
-    "file": "src/encrypt.cpp",
-    "line": 458,
-    "summary": "encrypt_file() silently treats empty input as successful encryption even when encrypt() fails internally — encryption failure indistinguishable from success for 0-byte files",
-    "failure_scenario": "encrypt_file() checks ciphertext.empty() && !data.empty() but for empty input, data.empty() is true, so an internal failure (e.g., key validation returning {}) is treated as success. The function returns true with a valid but incorrect output file."
+    "file": "src/cli.cpp",
+    "line": 121,
+    "summary": "Comma-separated --obf parsing does not trim whitespace — 'namemangling, stringencoding' fails on second type",
+    "failure_scenario": "all_obf_names() returns 'namemangling, stringencoding, docstrip, literal' (with spaces after commas). Users copy-paste this format into --obf 'namemangling, stringencoding'. The split produces ' stringencoding' (leading space) which fails parse_obf_type() and errors with 'unknown obfuscation type'."
   },
   {
     "id": "F8",
     "severity": "medium",
     "category": "correctness",
-    "file": "include/switch/encrypt.hpp",
-    "line": 54,
-    "summary": "decrypt() header comment says 'ChaCha20: XOR again (stream cipher)' but the code actually uses ChaCha20-Poly1305 AEAD decrypt with MAC verification, not XOR",
-    "failure_scenario": "The decrypt() comment at line 54 describes ChaCha20 as 'XOR again (stream cipher)' which is factually wrong for ChaCha20-Poly1305. This reinforces the incorrect 'raw stream cipher' mental model established by the encrypt() comment at line 44."
+    "file": "src/obfuscate.cpp",
+    "line": 108,
+    "summary": "Hardcoded 'python3' with no availability check — silent failure on systems without Python 3",
+    "failure_scenario": "Minimal Docker images, CI containers, or user systems without python3. Every obfuscation call fails with generic 'obfuscation failed for <type>' — no hint that root cause is missing interpreter. Should check python3 availability once at startup."
   },
   {
     "id": "F9",
+    "severity": "medium",
+    "category": "conventions",
+    "file": "CLAUDE.md",
+    "line": 49,
+    "summary": "Namespace split documentation omits switch_obf — code uses four namespaces but docs list only three",
+    "failure_scenario": "CLAUDE.md states three namespaces: switch_cli, switch_encode, switch_encrypt. Code uses switch_obf namespace (obfuscate.cpp:9, obfuscate.hpp:8) with 4 types. New contributors cannot discover the obfuscation namespace from documentation."
+  },
+  {
+    "id": "F10",
+    "severity": "medium",
+    "category": "conventions",
+    "file": "CLAUDE.md",
+    "line": 43,
+    "summary": "Architecture description of main.cpp dispatch is stale — missing Obfuscate, KeyGenerator, ObfuscateList routes",
+    "failure_scenario": "CLAUDE.md says 'route to Help/Version/EncodeList/Encode/Encrypt'. Actual main.cpp switch routes to: Help, Version, EncodeList, EncryptList, KeyGenerator, Encode, Encrypt, Obfuscate, Protect, Build. Three routes undocumented."
+  },
+  {
+    "id": "F11",
+    "severity": "low",
+    "category": "conventions",
+    "file": "CLAUDE.md",
+    "line": 72,
+    "summary": "--obf types listing incomplete — only 'namemangling, stringencoding' but code supports four types",
+    "failure_scenario": "CLAUDE.md documents 'Types: namemangling, stringencoding.' all_obf_names() returns 'namemangling, stringencoding, docstrip, literal'. Two types (docstrip, literal) are undocumented."
+  },
+  {
+    "id": "F12",
     "severity": "low",
     "category": "simplification",
-    "file": "src/encrypt.cpp",
-    "line": 91,
-    "summary": "encrypt_library_name() is declared in header and implemented but never called anywhere — dead code",
-    "failure_scenario": "Grep confirms zero callers. Adds maintenance surface and misleads readers about the public API. Should be removed or used (e.g., in error messages)."
+    "file": "scripts/obf_stringencode.py",
+    "line": 44,
+    "summary": "Dead code: join_call AST node is constructed but never referenced in return value",
+    "failure_scenario": "Lines 44-48 build join_call with ast.Constant(value='') and sep keyword, but line 49's return builds a fresh .join() call inline, bypassing it entirely. Maintenance trap: contributor may try to fix join behavior at line 44 without realizing it is discarded."
+  },
+  {
+    "id": "F13",
+    "severity": "low",
+    "category": "simplification",
+    "file": "scripts/obf_literal.py",
+    "line": 141,
+    "summary": "_obfuscate_float() calls random.choice on single-element list — pointless indirection",
+    "failure_scenario": "For non-integer floats, strategies list always has exactly 1 element (the addition decomposition). random.choice(strategies) on a 1-element list is a no-op. Should return the strategy directly."
+  },
+  {
+    "id": "F14",
+    "severity": "low",
+    "category": "simplification",
+    "file": "scripts/obf_literal.py",
+    "line": 97,
+    "summary": "Strategy 5 bit-shift loop for non-power-of-2 overlaps with Strategy 2 multiplication — redundant strategies dilute pool",
+    "failure_scenario": "For n=12: Strategy 2 produces 3*4 (multiplication). Strategy 5 produces 3<<2 (shift). These are semantically identical, inflating the strategy pool. The power-of-2 branch (line 89) also overlaps with Strategy 1 (eval(hex(n))) for powers of 2."
   }
 ]
