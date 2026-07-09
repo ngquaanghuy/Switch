@@ -13,6 +13,7 @@ enum class ObfType {
     StringEncoding, // Encode string literals (chr(), bytes(), base64)
     DocStrip,       // Remove docstrings and comments
     Literal,        // Obfuscate numeric/boolean/None literals
+    XorEncoding,    // XOR-encode strings with random multi-byte keys
 };
 
 // Parse an obfuscation technique name (case-insensitive).
