@@ -65,12 +65,15 @@ std::string encrypt_type_name(EncryptType type) {
     case EncryptType::Aes256Ccm: return "aes-256-ccm";
     case EncryptType::Aes128Siv: return "aes-128-siv";
     case EncryptType::Aes256Siv: return "aes-256-siv";
+    case EncryptType::Aes128Ocb: return "aes-128-ocb";
+    case EncryptType::Aes192Ocb: return "aes-192-ocb";
+    case EncryptType::Aes256Ocb: return "aes-256-ocb";
     }
     return "unknown";
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm, aes-128-ccm, aes-192-ccm, aes-256-ccm, aes-128-siv, aes-256-siv";
+    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm, aes-128-ccm, aes-192-ccm, aes-256-ccm, aes-128-siv, aes-256-siv, aes-128-ocb, aes-192-ocb, aes-256-ocb";
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -88,6 +91,9 @@ size_t expected_key_len(EncryptType type) {
     case EncryptType::Aes256Ccm: return 32;
     case EncryptType::Aes128Siv: return 32;  // 16 CMAC + 16 CTR
     case EncryptType::Aes256Siv: return 32;  // 16 CMAC + 16 CTR
+    case EncryptType::Aes128Ocb: return 16;
+    case EncryptType::Aes192Ocb: return 24;
+    case EncryptType::Aes256Ocb: return 32;
     }
     return 0;
 }
@@ -107,6 +113,9 @@ size_t expected_nonce_len(EncryptType type) {
     case EncryptType::Aes256Ccm: return 12; // CCM standard nonce
     case EncryptType::Aes128Siv: return 0;  // SIV nonce optional
     case EncryptType::Aes256Siv: return 0;  // SIV nonce optional
+    case EncryptType::Aes128Ocb: return 12; // OCB standard nonce
+    case EncryptType::Aes192Ocb: return 12; // OCB standard nonce
+    case EncryptType::Aes256Ocb: return 12; // OCB standard nonce
     }
     return 0;
 }
@@ -135,6 +144,15 @@ const EVP_CIPHER* get_evp_gcm_cipher(EncryptType type) {
     case EncryptType::Aes128Gcm: return EVP_aes_128_gcm();
     case EncryptType::Aes192Gcm: return EVP_aes_192_gcm();
     case EncryptType::Aes256Gcm: return EVP_aes_256_gcm();
+    default: return nullptr;
+    }
+}
+
+const EVP_CIPHER* get_evp_ocb_cipher(EncryptType type) {
+    switch (type) {
+    case EncryptType::Aes128Ocb: return EVP_aes_128_ocb();
+    case EncryptType::Aes192Ocb: return EVP_aes_192_ocb();
+    case EncryptType::Aes256Ocb: return EVP_aes_256_ocb();
     default: return nullptr;
     }
 }
@@ -321,6 +339,85 @@ std::vector<uint8_t> aes_gcm_decrypt(const std::vector<uint8_t>& ciphertext,
     EVP_CIPHER_CTX_free(ctx);
 
     if (!ok) return {}; // tag verification failed
+    plaintext.resize(out_len + final_len);
+    return plaintext;
+}
+
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
+// AES-OCB AEAD encrypt / decrypt via OpenSSL EVP (RFC 7253)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// OCB appends 16-byte auth tag to ciphertext.
+// Same pattern as GCM — no padding, stream mode.
+
+std::vector<uint8_t> aes_ocb_encrypt(const std::vector<uint8_t>& plaintext,
+                                     const std::vector<uint8_t>& key,
+                                     const std::vector<uint8_t>& iv,
+                                     EncryptType type) {
+    const EVP_CIPHER* cipher = get_evp_ocb_cipher(type);
+    if (!cipher) return {};
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+
+    std::vector<uint8_t> ciphertext(plaintext.size());
+    int out_len = 0;
+    int final_len = 0;
+    uint8_t tag[16] = {};
+
+    bool ok = true;
+    ok = ok && (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
+    ok = ok && (EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
+    ok = ok && (EVP_EncryptUpdate(ctx, ciphertext.data(), &out_len,
+                                  plaintext.data(), static_cast<int>(plaintext.size())) == 1);
+    ok = ok && (EVP_EncryptFinal_ex(ctx, ciphertext.data() + out_len, &final_len) == 1);
+    ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tag) == 1);
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    if (!ok) return {};
+    ciphertext.resize(out_len + final_len);
+    ciphertext.insert(ciphertext.end(), tag, tag + 16);
+    return ciphertext;
+}
+
+std::vector<uint8_t> aes_ocb_decrypt(const std::vector<uint8_t>& ciphertext,
+                                     const std::vector<uint8_t>& key,
+                                     const std::vector<uint8_t>& iv,
+                                     EncryptType type) {
+    const EVP_CIPHER* cipher = get_evp_ocb_cipher(type);
+    if (!cipher) return {};
+
+    constexpr size_t TAG_LEN = 16;
+    if (ciphertext.size() < TAG_LEN) return {};
+
+    size_t enc_len = ciphertext.size() - TAG_LEN;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+
+    std::vector<uint8_t> plaintext(enc_len);
+    int out_len = 0;
+    int final_len = 0;
+
+    bool ok = true;
+    ok = ok && (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
+    ok = ok && (EVP_CIPHER_CTX_set_key_length(ctx, static_cast<int>(key.size())) == 1);
+    ok = ok && (EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), iv.data()) == 1);
+    ok = ok && (EVP_DecryptUpdate(ctx, plaintext.data(), &out_len,
+                                  ciphertext.data(), static_cast<int>(enc_len)) == 1);
+    ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 16,
+                                    const_cast<uint8_t*>(ciphertext.data() + enc_len)) == 1);
+    ok = ok && (EVP_DecryptFinal_ex(ctx, plaintext.data() + out_len, &final_len) == 1);
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    if (!ok) return {};
     plaintext.resize(out_len + final_len);
     return plaintext;
 }
@@ -714,6 +811,10 @@ std::vector<uint8_t> encrypt(EncryptType type,
         return aes_siv_encrypt(key.data(), key.size(),
                                iv_or_nonce.data(), iv_or_nonce.size(),
                                plaintext.data(), plaintext.size());
+    case EncryptType::Aes128Ocb:
+    case EncryptType::Aes192Ocb:
+    case EncryptType::Aes256Ocb:
+        return aes_ocb_encrypt(plaintext, key, iv_or_nonce, type);
     }
     return {};
 }
@@ -749,6 +850,10 @@ std::vector<uint8_t> decrypt(EncryptType type,
         return aes_siv_decrypt(key.data(), key.size(),
                                iv_or_nonce.data(), iv_or_nonce.size(),
                                ciphertext.data(), ciphertext.size());
+    case EncryptType::Aes128Ocb:
+    case EncryptType::Aes192Ocb:
+    case EncryptType::Aes256Ocb:
+        return aes_ocb_decrypt(ciphertext, key, iv_or_nonce, type);
     }
     return {};
 }
@@ -859,6 +964,8 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n";
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESCCM\n";
+    } else if (type == EncryptType::Aes128Ocb || type == EncryptType::Aes192Ocb || type == EncryptType::Aes256Ocb) {
+        w += "    from cryptography.hazmat.primitives.ciphers.aead import AESOCB3\n";
     } else if (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv) {
         w += "    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n";
         w += "    from cryptography.hazmat.primitives.cmac import CMAC as _CMAC\n";
@@ -901,6 +1008,9 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
         w += "    _box = AESCCM(_key, tag_length=16)\n";
+        w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
+    } else if (type == EncryptType::Aes128Ocb || type == EncryptType::Aes192Ocb || type == EncryptType::Aes256Ocb) {
+        w += "    _box = AESOCB3(_key)\n";
         w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
     } else if (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv) {
         w += "    def _cmac128(k, d):\n";

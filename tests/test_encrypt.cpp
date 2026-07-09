@@ -72,6 +72,9 @@ TEST_CASE("encrypt_type_name: returns correct names") {
     CHECK(encrypt_type_name(EncryptType::Aes256Ccm) == "aes-256-ccm");
     CHECK(encrypt_type_name(EncryptType::Aes128Siv) == "aes-128-siv");
     CHECK(encrypt_type_name(EncryptType::Aes256Siv) == "aes-256-siv");
+    CHECK(encrypt_type_name(EncryptType::Aes128Ocb) == "aes-128-ocb");
+    CHECK(encrypt_type_name(EncryptType::Aes192Ocb) == "aes-192-ocb");
+    CHECK(encrypt_type_name(EncryptType::Aes256Ocb) == "aes-256-ocb");
 }
 
 // =========================================================================
@@ -538,6 +541,49 @@ TEST_CASE("aes-256-siv: empty input") {
 }
 
 // =========================================================================
+// AES-OCB AEAD encrypt / decrypt (RFC 7253, 12-byte nonce, 16-byte tag)
+// =========================================================================
+
+TEST_CASE("aes-128-ocb: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-128-OCB roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes128Ocb, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes128Ocb, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-192-ocb: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f1011121314151617");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-192-OCB roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes192Ocb, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes192Ocb, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-ocb: roundtrip") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    std::string original = "AES-256-OCB roundtrip test!";
+    auto ct = encrypt(EncryptType::Aes256Ocb, bytes(original), key, iv);
+    auto pt = decrypt(EncryptType::Aes256Ocb, ct, key, iv);
+    REQUIRE(!pt.empty());
+    CHECK(std::string(pt.begin(), pt.end()) == original);
+}
+
+TEST_CASE("aes-256-ocb: wrong key fails to decrypt") {
+    auto key = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    auto iv  = from_hex("000000000000000000000000");
+    auto ct = encrypt(EncryptType::Aes256Ocb, bytes("secret"), key, iv);
+    auto wrong_key = from_hex("1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30");
+    auto pt = decrypt(EncryptType::Aes256Ocb, ct, wrong_key, iv);
+    CHECK(pt.empty());
+}
+
+// =========================================================================
 // generate_random_iv
 // =========================================================================
 
@@ -619,6 +665,7 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
     auto nonce_chacha = from_hex("000000000000000000000000");
     auto nonce_xchacha = from_hex("000000000000000000000000000000000000000000000000");
     auto iv_gcm = from_hex("000000000000000000000000");
+    auto key_siv = from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     std::vector<TestCase> tests = {
         {EncryptType::Aes128, key128, iv},
         {EncryptType::Aes192, key192, iv},
@@ -631,6 +678,11 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
         {EncryptType::Aes128Ccm, key128, iv_gcm},
         {EncryptType::Aes192Ccm, key192, iv_gcm},
         {EncryptType::Aes256Ccm, key256, iv_gcm},
+        {EncryptType::Aes128Siv, key_siv, {}},
+        {EncryptType::Aes256Siv, key_siv, {}},
+        {EncryptType::Aes128Ocb, key128, iv_gcm},
+        {EncryptType::Aes192Ocb, key192, iv_gcm},
+        {EncryptType::Aes256Ocb, key256, iv_gcm},
     };
 
     for (auto& tc : tests) {
