@@ -67,12 +67,14 @@ set(SOURCES
     src/cli.cpp
     src/encode.cpp
     src/encrypt.cpp
+    src/obfuscate.cpp
 )
 
 set(HEADERS
     include/switch/cli.hpp
     include/switch/encode.hpp
     include/switch/encrypt.hpp
+    include/switch/obfuscate.hpp
     include/switch/version.hpp
 )
 

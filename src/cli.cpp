@@ -99,6 +99,31 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --obf-list
+        if (is_flag(arg, "", "--obf-list")) {
+            args.obf_list = true;
+            continue;
+        }
+
+        // --obf <type> (repeatable)
+        if (arg == "--obf") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --obf requires an obfuscation technique\n"
+                          << "Valid types: " << switch_obf::all_obf_names() << "\n"
+                          << "Try 'switch --obf-list' to see all options.\n";
+                return std::nullopt;
+            }
+            std::string_view obf_name{argv[++i]};
+            auto parsed = switch_obf::parse_obf_type(obf_name);
+            if (!parsed) {
+                std::cerr << "switch: unknown obfuscation type '" << obf_name << "'\n"
+                          << "Valid types: " << switch_obf::all_obf_names() << "\n";
+                return std::nullopt;
+            }
+            args.obf_types.push_back(*parsed);
+            continue;
+        }
+
         // --encode <type>
         if (arg == "--encode") {
             if (i + 1 >= argc) {
@@ -265,7 +290,10 @@ std::optional<Args> parse(int argc, const char* argv[]) {
 
     // Default command: if nothing specified, show help
     if (args.cmd == Command::Unknown && !args.show_help && !args.show_version) {
-        if (!args.positional.empty()) {
+        if (!args.obf_types.empty()) {
+            // --obf given without --encode/--encrypt → standalone obfuscation
+            args.cmd = Command::Obfuscate;
+        } else if (!args.positional.empty()) {
             // Bare file → hint at future protect behavior
             args.cmd = Command::Protect;
         } else {
@@ -312,6 +340,9 @@ void print_help() {
               << "  --key-generator <type>\n"
               << "                     Generate a random key for the given encryption type\n"
               << "                     Types: " << switch_encrypt::all_encrypt_names() << "\n"
+              << "  --obf <type>       Obfuscate Python source (repeatable)\n"
+              << "                     Types: " << switch_obf::all_obf_names() << "\n"
+              << "  --obf-list         List all obfuscation techniques\n"
               << "\n"
               << "COMMANDS (planned)\n"
               << "  protect <file>     Encrypt and protect Python source\n"
@@ -324,7 +355,8 @@ void print_help() {
               << "  switch --encrypt-list\n"
               << "  switch --encode base32 input.py -o output.py\n"
               << "  switch --encrypt aes-256 input.py --key <64-hex-chars> -o output.py\n"
-              << "  switch --encrypt chacha20 input.py --key <64-hex-chars> -o output.py\n"
+              << "  switch --obf namemangling input.py -o obfuscated.py\n"
+              << "  switch --obf namemangling --encode base64 input.py -o output.py\n"
               << "  python output.py                 # runs original code\n"
               << "\n"
               << "Python 3.14+ required for runtime features.\n"

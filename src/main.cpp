@@ -1,11 +1,13 @@
 #include "switch/cli.hpp"
 #include "switch/encode.hpp"
 #include "switch/encrypt.hpp"
+#include "switch/obfuscate.hpp"
 
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
 #include <algorithm>
+#include <unistd.h>
 
 #include <openssl/crypto.h>
 #include <sodium.h>
@@ -29,6 +31,18 @@ int main(int argc, const char* argv[]) {
     auto args = switch_cli::parse(argc, argv);
     if (!args) {
         return 1; // parse error, message already printed
+    }
+
+    // Handle --obf-list (independent of command)
+    if (args->obf_list) {
+        std::cout << "Supported obfuscation techniques:\n"
+                  << "  " << switch_obf::all_obf_names() << "\n";
+        return 0;
+    }
+
+    // If --obf is given without --encode/--encrypt, treat as standalone obfuscation
+    if (!args->obf_types.empty() && args->cmd == switch_cli::Command::Unknown) {
+        args->cmd = switch_cli::Command::Obfuscate;
     }
 
     switch (args->cmd) {
@@ -85,8 +99,55 @@ int main(int argc, const char* argv[]) {
             output_path = input_path + "." + std::string(switch_encode::encode_type_name(encode_type));
         }
 
+        // If obfuscation requested, apply it first (write to temp file)
+        std::string effective_input = input_path;
+        std::string obf_tmp;
+        if (!args->obf_types.empty()) {
+            // Read source
+            std::ifstream in(input_path, std::ios::binary | std::ios::ate);
+            if (!in) {
+                std::cerr << "switch: cannot open input file '" << input_path
+                          << "': " << std::generic_category().message(errno) << "\n";
+                return 1;
+            }
+            std::streamsize sz = in.tellg();
+            in.seekg(0, std::ios::beg);
+            std::string src(static_cast<size_t>(sz), '\0');
+            if (sz > 0 && !in.read(src.data(), sz)) {
+                std::cerr << "switch: failed to read input file\n";
+                return 1;
+            }
+            in.close();
+
+            for (auto obf_type : args->obf_types) {
+                std::string result = switch_obf::obfuscate(obf_type, src);
+                if (result.empty()) {
+                    std::cerr << "switch: obfuscation failed for "
+                              << switch_obf::obf_type_name(obf_type) << "\n";
+                    return 1;
+                }
+                src = result;
+            }
+
+            // Write obfuscated source to temp file
+            obf_tmp = "/tmp/switch_obf_enc_XXXXXX";
+            int fd = mkstemp(obf_tmp.data());
+            if (fd < 0) {
+                std::cerr << "switch: failed to create temp file\n";
+                return 1;
+            }
+            write(fd, src.data(), src.size());
+            close(fd);
+            effective_input = obf_tmp;
+        }
+
         std::string error_msg;
-        if (!switch_encode::encode_file(encode_type, input_path, output_path, error_msg)) {
+        bool ok = switch_encode::encode_file(encode_type, effective_input, output_path, error_msg);
+
+        // Cleanup temp file
+        if (!obf_tmp.empty()) unlink(obf_tmp.c_str());
+
+        if (!ok) {
             std::cerr << "switch: encode failed: " << error_msg << "\n";
             return 1;
         }
@@ -227,9 +288,53 @@ int main(int argc, const char* argv[]) {
             output_path = input_path + "." + switch_encrypt::encrypt_type_name(encrypt_type) + ".py";
         }
 
+        // If obfuscation requested, apply it first (write to temp file)
+        std::string effective_input = input_path;
+        std::string obf_tmp;
+        if (!args->obf_types.empty()) {
+            std::ifstream in(input_path, std::ios::binary | std::ios::ate);
+            if (!in) {
+                std::cerr << "switch: cannot open input file '" << input_path
+                          << "': " << std::generic_category().message(errno) << "\n";
+                return 1;
+            }
+            std::streamsize sz = in.tellg();
+            in.seekg(0, std::ios::beg);
+            std::string src(static_cast<size_t>(sz), '\0');
+            if (sz > 0 && !in.read(src.data(), sz)) {
+                std::cerr << "switch: failed to read input file\n";
+                return 1;
+            }
+            in.close();
+
+            for (auto obf_type : args->obf_types) {
+                std::string result = switch_obf::obfuscate(obf_type, src);
+                if (result.empty()) {
+                    std::cerr << "switch: obfuscation failed for "
+                              << switch_obf::obf_type_name(obf_type) << "\n";
+                    return 1;
+                }
+                src = result;
+            }
+
+            obf_tmp = "/tmp/switch_obf_enc_XXXXXX";
+            int fd = mkstemp(obf_tmp.data());
+            if (fd < 0) {
+                std::cerr << "switch: failed to create temp file\n";
+                return 1;
+            }
+            write(fd, src.data(), src.size());
+            close(fd);
+            effective_input = obf_tmp;
+        }
+
         std::string error_msg;
-        if (!switch_encrypt::encrypt_file(encrypt_type, input_path, output_path,
-                                           *key, iv_or_nonce, error_msg)) {
+        bool ok = switch_encrypt::encrypt_file(encrypt_type, effective_input, output_path,
+                                               *key, iv_or_nonce, error_msg);
+
+        if (!obf_tmp.empty()) unlink(obf_tmp.c_str());
+
+        if (!ok) {
             std::cerr << "switch: encrypt failed: " << error_msg << "\n";
             return 1;
         }
@@ -237,6 +342,67 @@ int main(int argc, const char* argv[]) {
         std::cout << "Encrypted " << input_path
                   << " → " << output_path
                   << " (" << switch_encrypt::encrypt_type_name(encrypt_type) << ")\n";
+        return 0;
+    }
+
+    case switch_cli::Command::Obfuscate: {
+        // Standalone obfuscation: read → obfuscate → write .py
+        if (args->positional.empty()) {
+            std::cerr << "switch: --obf requires an input file\n"
+                      << "Usage: switch --obf <type> <input> [-o <output>]\n";
+            return 1;
+        }
+
+        const auto& input_path = args->positional[0];
+
+        // Read input file
+        std::ifstream in(input_path, std::ios::binary | std::ios::ate);
+        if (!in) {
+            std::cerr << "switch: cannot open input file '" << input_path
+                      << "': " << std::generic_category().message(errno) << "\n";
+            return 1;
+        }
+        std::streamsize size = in.tellg();
+        in.seekg(0, std::ios::beg);
+        std::string source(static_cast<size_t>(size), '\0');
+        if (size > 0 && !in.read(source.data(), size)) {
+            std::cerr << "switch: failed to read input file '" << input_path << "'\n";
+            return 1;
+        }
+        in.close();
+
+        // Apply obfuscation techniques in sequence
+        std::string current = source;
+        for (auto obf_type : args->obf_types) {
+            std::string result = switch_obf::obfuscate(obf_type, current);
+            if (result.empty()) {
+                std::cerr << "switch: obfuscation failed for "
+                          << switch_obf::obf_type_name(obf_type) << "\n";
+                return 1;
+            }
+            current = result;
+        }
+
+        // Derive output path
+        std::string output_path;
+        if (args->output_file) {
+            output_path = *args->output_file;
+        } else {
+            output_path = input_path + ".obf.py";
+        }
+
+        // Write output
+        std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            std::cerr << "switch: cannot write to output file '" << output_path
+                      << "': " << std::generic_category().message(errno) << "\n";
+            return 1;
+        }
+        out.write(current.data(), static_cast<std::streamsize>(current.size()));
+        out.close();
+
+        std::cout << "Obfuscated " << input_path
+                  << " → " << output_path << "\n";
         return 0;
     }
 
