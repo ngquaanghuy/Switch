@@ -337,6 +337,41 @@ TEST_CASE("cli parse: --iv without value returns nullopt") {
     CHECK(args == std::nullopt);
 }
 
+TEST_CASE("cli parse: --key-file sets encrypt_key_file") {
+    const char* argv[] = {"switch", "--encrypt", "aes-256", "test.py",
+                          "--key-file", "/path/to/key.hex"};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    REQUIRE(args->encrypt_key_file.has_value());
+    CHECK(*args->encrypt_key_file == "/path/to/key.hex");
+    CHECK(!args->encrypt_key.has_value());
+}
+
+TEST_CASE("cli parse: --key-env sets encrypt_key_env") {
+    const char* argv[] = {"switch", "--encrypt", "aes-256", "test.py",
+                          "--key-env", "MY_SECRET_KEY"};
+    auto args = switch_cli::parse(6, argv);
+    REQUIRE(args.has_value());
+    CHECK(args->cmd == switch_cli::Command::Encrypt);
+    REQUIRE(args->encrypt_key_env.has_value());
+    CHECK(*args->encrypt_key_env == "MY_SECRET_KEY");
+}
+
+TEST_CASE("cli parse: --key-file without value returns nullopt") {
+    const char* argv[] = {"switch", "--encrypt", "aes-256", "test.py",
+                          "--key-file"};
+    auto args = switch_cli::parse(5, argv);
+    CHECK(args == std::nullopt);
+}
+
+TEST_CASE("cli parse: --key-env without value returns nullopt") {
+    const char* argv[] = {"switch", "--encrypt", "aes-256", "test.py",
+                          "--key-env"};
+    auto args = switch_cli::parse(5, argv);
+    CHECK(args == std::nullopt);
+}
+
 TEST_CASE("cli parse: --encrypt chacha20 with --iv returns error") {
     const char* iv = "00000000000000000000000000000000";
     const char* argv[] = {"switch", "--encrypt", "chacha20", "in.py",
@@ -734,6 +769,172 @@ TEST_CASE("encrypt_file e2e: AES-256-OCB output is runnable Python") {
     INFO("python output: ", py_output);
     CHECK(WEXITSTATUS(rc) == 0);
     CHECK(py_output.find("hello from aes-ocb") != std::string::npos);
+}
+
+// =========================================================================
+// --key-file and --key-env e2e tests
+// =========================================================================
+
+TEST_CASE("e2e: --key-file reads key from file and encrypts") {
+    // Create key file
+    std::string keyfile = "/tmp/switch_test_keyfile.hex";
+    std::ofstream kf(keyfile);
+    kf << AES256_KEY;
+    kf.close();
+
+    // Create input
+    std::string input = create_temp_file("print('hello from keyfile')\n");
+    std::string output = "/tmp/switch_test_e2e_keyfile.py";
+    TempFileGuard guard{{input, output, keyfile}};
+
+    // Run CLI with --key-file
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-file " + keyfile
+                    + " -o " + output + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) == 0);
+    CHECK(cli_output.find("Encrypted") != std::string::npos);
+
+    // Verify output runs
+    std::string run_cmd = "python3 " + output + " 2>&1";
+    FILE* pipe2 = popen(run_cmd.c_str(), "r");
+    REQUIRE(pipe2 != nullptr);
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe2)) py_output += buf;
+    int rc2 = pclose(pipe2);
+    CHECK(WEXITSTATUS(rc2) == 0);
+    CHECK(py_output.find("hello from keyfile") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key-file with whitespace-stripped key") {
+    // Create key file with spaces and newlines
+    std::string keyfile = "/tmp/switch_test_keyfile_ws.hex";
+    std::ofstream kf(keyfile);
+    kf << "0001 0203 0405 0607 0809 0a0b 0c0d 0e0f\n"
+       << "1011 1213 1415 1617 1819 1a1b 1c1d 1e1f\n";
+    kf.close();
+
+    std::string input = create_temp_file("print('ws key')\n");
+    std::string output = "/tmp/switch_test_e2e_keyfile_ws.py";
+    TempFileGuard guard{{input, output, keyfile}};
+
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-file " + keyfile
+                    + " -o " + output + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) == 0);
+
+    // Verify output runs
+    std::string run_cmd = "python3 " + output + " 2>&1";
+    FILE* pipe2 = popen(run_cmd.c_str(), "r");
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe2)) py_output += buf;
+    pclose(pipe2);
+    CHECK(py_output.find("ws key") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key-env reads key from environment variable") {
+    std::string input = create_temp_file("print('hello from envkey')\n");
+    std::string output = "/tmp/switch_test_e2e_keyenv.py";
+    TempFileGuard guard{{input, output}};
+
+    std::string cmd = "MY_AES_KEY=" + std::string(AES256_KEY)
+                    + " /home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-env MY_AES_KEY"
+                    + " -o " + output + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    REQUIRE(pipe != nullptr);
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) == 0);
+    CHECK(cli_output.find("Encrypted") != std::string::npos);
+
+    // Verify output runs
+    std::string run_cmd = "python3 " + output + " 2>&1";
+    FILE* pipe2 = popen(run_cmd.c_str(), "r");
+    std::string py_output;
+    while (fgets(buf, sizeof(buf), pipe2)) py_output += buf;
+    int rc2 = pclose(pipe2);
+    CHECK(WEXITSTATUS(rc2) == 0);
+    CHECK(py_output.find("hello from envkey") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key-file nonexistent file fails") {
+    std::string input = create_temp_file("print('test')\n");
+    TempFileGuard guard{{input}};
+
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-file /tmp/nonexistent_key_xxx.hex 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) != 0);
+    CHECK(cli_output.find("cannot open key file") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key-env unset variable fails") {
+    std::string input = create_temp_file("print('test')\n");
+    TempFileGuard guard{{input}};
+
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-env UNSET_VAR_XXXXX 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) != 0);
+    CHECK(cli_output.find("is not set") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key-file wrong length key fails") {
+    std::string keyfile = "/tmp/switch_test_keyfile_bad.hex";
+    std::ofstream kf(keyfile);
+    kf << "00010203";  // only 4 bytes, need 32 for aes-256
+    kf.close();
+
+    std::string input = create_temp_file("print('test')\n");
+    TempFileGuard guard{{input, keyfile}};
+
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key-file " + keyfile + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) != 0);
+    CHECK(cli_output.find("key must be") != std::string::npos);
+}
+
+TEST_CASE("e2e: --key and --key-file mutually exclusive") {
+    std::string input = create_temp_file("print('test')\n");
+    TempFileGuard guard{{input}};
+
+    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " --key " + AES256_KEY
+                    + " --key-file /tmp/some.key 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    char buf[256] = {};
+    std::string cli_output;
+    while (fgets(buf, sizeof(buf), pipe)) cli_output += buf;
+    int rc = pclose(pipe);
+    CHECK(WEXITSTATUS(rc) != 0);
+    CHECK(cli_output.find("mutually exclusive") != std::string::npos);
 }
 
 TEST_CASE("encrypt_file e2e: nonexistent input path fails") {

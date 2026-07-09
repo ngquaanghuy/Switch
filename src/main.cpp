@@ -4,6 +4,8 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <fstream>
+#include <algorithm>
 
 #include <openssl/crypto.h>
 #include <sodium.h>
@@ -103,15 +105,62 @@ int main(int argc, const char* argv[]) {
             return 1;
         }
 
-        // Validate we have a key
-        if (!args->encrypt_key) {
-            std::cerr << "switch: --encrypt requires --key <hex>\n"
+        // Validate key source: --key, --key-file, or --key-env (mutually exclusive)
+        int key_sources = (args->encrypt_key ? 1 : 0)
+                        + (args->encrypt_key_file ? 1 : 0)
+                        + (args->encrypt_key_env ? 1 : 0);
+        if (key_sources == 0) {
+            std::cerr << "switch: --encrypt requires --key, --key-file, or --key-env\n"
                       << "Usage: switch --encrypt <type> <input> --key <hex> [-o <output>]\n";
             return 1;
         }
+        if (key_sources > 1) {
+            std::cerr << "switch: --key, --key-file, and --key-env are mutually exclusive\n";
+            return 1;
+        }
+
+        // Resolve key hex string from the chosen source
+        std::string key_hex;
+        if (args->encrypt_key) {
+            key_hex = *args->encrypt_key;
+        } else if (args->encrypt_key_file) {
+            std::ifstream kf(*args->encrypt_key_file, std::ios::binary);
+            if (!kf) {
+                std::cerr << "switch: cannot open key file '" << *args->encrypt_key_file
+                          << "': " << std::generic_category().message(errno) << "\n";
+                return 1;
+            }
+            std::string contents((std::istreambuf_iterator<char>(kf)),
+                                  std::istreambuf_iterator<char>());
+            kf.close();
+            // Strip whitespace and newlines
+            contents.erase(std::remove_if(contents.begin(), contents.end(),
+                           [](unsigned char c) { return std::isspace(c); }),
+                           contents.end());
+            key_hex = contents;
+            if (key_hex.empty()) {
+                std::cerr << "switch: key file '" << *args->encrypt_key_file << "' is empty\n";
+                return 1;
+            }
+        } else if (args->encrypt_key_env) {
+            const char* val = std::getenv(args->encrypt_key_env->c_str());
+            if (!val) {
+                std::cerr << "switch: environment variable '" << *args->encrypt_key_env << "' is not set\n";
+                return 1;
+            }
+            key_hex = val;
+            // Strip whitespace
+            key_hex.erase(std::remove_if(key_hex.begin(), key_hex.end(),
+                           [](unsigned char c) { return std::isspace(c); }),
+                           key_hex.end());
+            if (key_hex.empty()) {
+                std::cerr << "switch: environment variable '" << *args->encrypt_key_env << "' is empty\n";
+                return 1;
+            }
+        }
 
         // Parse key from hex
-        auto key = switch_encrypt::hex_to_bytes(*args->encrypt_key);
+        auto key = switch_encrypt::hex_to_bytes(key_hex);
         if (!key) {
             std::cerr << "switch: invalid hex key\n";
             return 1;

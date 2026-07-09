@@ -167,6 +167,26 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --key-file <path>
+        if (arg == "--key-file") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --key-file requires a file path\n";
+                return std::nullopt;
+            }
+            args.encrypt_key_file = argv[++i];
+            continue;
+        }
+
+        // --key-env <ENV_VAR>
+        if (arg == "--key-env") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --key-env requires an environment variable name\n";
+                return std::nullopt;
+            }
+            args.encrypt_key_env = argv[++i];
+            continue;
+        }
+
         // --key-generator <type>
         if (arg == "--key-generator") {
             if (i + 1 >= argc) {
@@ -282,6 +302,8 @@ void print_help() {
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"
               << "                     Output runs with: python output.py\n"
               << "  --key <hex>        Hex-encoded encryption key (required with --encrypt)\n"
+              << "  --key-file <path>  Read hex key from file (whitespace stripped)\n"
+              << "  --key-env <VAR>    Read hex key from environment variable\n"
               << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES-CBC) / 12 bytes (AES-GCM), optional\n"
               << "  --nonce <hex>      Hex-encoded nonce, 12 bytes (ChaCha20) / 24 bytes (XChaCha20), optional\n"
               << "  -o <file>          Output file path\n"

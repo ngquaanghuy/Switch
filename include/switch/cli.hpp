@@ -33,6 +33,8 @@ struct Args {
     std::optional<switch_encode::EncodeType> encode_type; // --encode <type>
     std::optional<switch_encrypt::EncryptType> encrypt_type; // --encrypt <type>
     std::optional<std::string> encrypt_key;  // --key <hex>
+    std::optional<std::string> encrypt_key_file; // --key-file <path>
+    std::optional<std::string> encrypt_key_env;  // --key-env <ENV_VAR>
     std::optional<std::string> encrypt_iv;   // --iv <hex> (AES)
     std::optional<std::string> encrypt_nonce; // --nonce <hex> (ChaCha20/XChaCha20)
     std::optional<std::string> output_file;   // -o <output>
