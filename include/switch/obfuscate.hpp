@@ -14,6 +14,7 @@ enum class ObfType {
     DocStrip,       // Remove docstrings and comments
     Literal,        // Obfuscate numeric/boolean/None literals
     XorEncoding,    // XOR-encode strings with random multi-byte keys
+    ImportRewrite,  // Rewrite imports as obfuscated dynamic imports
 };
 
 // Parse an obfuscation technique name (case-insensitive).
