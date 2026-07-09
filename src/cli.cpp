@@ -105,7 +105,7 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
-        // --obf <type> (repeatable)
+        // --obf <type>[,<type>...] (repeatable, comma-separated)
         if (arg == "--obf") {
             if (i + 1 >= argc) {
                 std::cerr << "switch: --obf requires an obfuscation technique\n"
@@ -113,14 +113,24 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                           << "Try 'switch --obf-list' to see all options.\n";
                 return std::nullopt;
             }
-            std::string_view obf_name{argv[++i]};
-            auto parsed = switch_obf::parse_obf_type(obf_name);
-            if (!parsed) {
-                std::cerr << "switch: unknown obfuscation type '" << obf_name << "'\n"
-                          << "Valid types: " << switch_obf::all_obf_names() << "\n";
-                return std::nullopt;
+            // Split comma-separated list: --obf a,b,c
+            std::string obf_arg{argv[++i]};
+            size_t pos = 0;
+            while (pos < obf_arg.size()) {
+                size_t comma = obf_arg.find(',', pos);
+                std::string part = (comma == std::string::npos)
+                    ? obf_arg.substr(pos)
+                    : obf_arg.substr(pos, comma - pos);
+                auto parsed = switch_obf::parse_obf_type(part);
+                if (!parsed) {
+                    std::cerr << "switch: unknown obfuscation type '" << part << "'\n"
+                              << "Valid types: " << switch_obf::all_obf_names() << "\n";
+                    return std::nullopt;
+                }
+                args.obf_types.push_back(*parsed);
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
             }
-            args.obf_types.push_back(*parsed);
             continue;
         }
 
