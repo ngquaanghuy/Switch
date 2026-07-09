@@ -132,7 +132,9 @@ int main(int argc, const char* argv[]) {
         std::vector<uint8_t> iv_or_nonce;
         size_t expected_nonce = switch_encrypt::expected_nonce_len(encrypt_type);
 
-        if (switch_encrypt::is_stream_cipher(encrypt_type)) {
+        if (expected_nonce == 0) {
+            // SIV: no nonce needed, leave iv_or_nonce empty
+        } else if (switch_encrypt::is_stream_cipher(encrypt_type)) {
             // ChaCha20/XChaCha20: use --nonce or generate random
             if (args->encrypt_nonce) {
                 auto parsed = switch_encrypt::hex_to_bytes(*args->encrypt_nonce);
@@ -147,16 +149,18 @@ int main(int argc, const char* argv[]) {
                 iv_or_nonce = switch_encrypt::generate_random_nonce(expected_nonce);
             }
         } else {
-            // AES: use --iv or generate random 16-byte IV
+            // AES: use --iv or generate random IV
             if (args->encrypt_iv) {
                 auto parsed = switch_encrypt::hex_to_bytes(*args->encrypt_iv);
-                if (!parsed || parsed->size() != 16) {
-                    std::cerr << "switch: IV must be exactly 16 bytes (32 hex characters)\n";
+                if (!parsed || parsed->size() != expected_nonce) {
+                    std::cerr << "switch: IV must be " << (expected_nonce * 2)
+                              << " hex characters (" << expected_nonce << " bytes) for "
+                              << switch_encrypt::encrypt_type_name(encrypt_type) << "\n";
                     return 1;
                 }
                 iv_or_nonce = *parsed;
             } else {
-                iv_or_nonce = switch_encrypt::generate_random_iv();
+                iv_or_nonce = switch_encrypt::generate_random_nonce(expected_nonce);
                 if (iv_or_nonce.empty()) {
                     std::cerr << "switch: failed to generate random IV\n";
                     return 1;

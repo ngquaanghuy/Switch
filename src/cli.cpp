@@ -21,6 +21,44 @@ void print_banner() {
     std::cout << "Built with C++17 | Python 3.14+ | Cross-platform\n\n";
 }
 
+// Centralized type string → EncryptType mapping.
+// Case-insensitive: checks lowercase, CamelCase, and UPPER variants.
+std::optional<switch_encrypt::EncryptType> parse_encrypt_type_name(std::string_view s) {
+    if (s == "aes-128" || s == "aes128" || s == "AES-128" || s == "AES128")
+        return switch_encrypt::EncryptType::Aes128;
+    if (s == "aes-192" || s == "aes192" || s == "AES-192" || s == "AES192")
+        return switch_encrypt::EncryptType::Aes192;
+    if (s == "aes-256" || s == "aes256" || s == "AES-256" || s == "AES256")
+        return switch_encrypt::EncryptType::Aes256;
+    if (s == "chacha20" || s == "ChaCha20" || s == "CHACHA20")
+        return switch_encrypt::EncryptType::ChaCha20;
+    if (s == "xchacha20" || s == "XChaCha20" || s == "XCHACHA20")
+        return switch_encrypt::EncryptType::XChaCha20;
+    if (s == "aes-128-gcm" || s == "aes128gcm" || s == "AES-128-GCM" || s == "AES128GCM")
+        return switch_encrypt::EncryptType::Aes128Gcm;
+    if (s == "aes-192-gcm" || s == "aes192gcm" || s == "AES-192-GCM" || s == "AES192GCM")
+        return switch_encrypt::EncryptType::Aes192Gcm;
+    if (s == "aes-256-gcm" || s == "aes256gcm" || s == "AES-256-GCM" || s == "AES256GCM")
+        return switch_encrypt::EncryptType::Aes256Gcm;
+    if (s == "aes-128-ccm" || s == "aes128ccm" || s == "AES-128-CCM" || s == "AES128CCM")
+        return switch_encrypt::EncryptType::Aes128Ccm;
+    if (s == "aes-192-ccm" || s == "aes192ccm" || s == "AES-192-CCM" || s == "AES192CCM")
+        return switch_encrypt::EncryptType::Aes192Ccm;
+    if (s == "aes-256-ccm" || s == "aes256ccm" || s == "AES-256-CCM" || s == "AES256CCM")
+        return switch_encrypt::EncryptType::Aes256Ccm;
+    if (s == "aes-128-siv" || s == "aes128siv" || s == "AES-128-SIV" || s == "AES128SIV")
+        return switch_encrypt::EncryptType::Aes128Siv;
+    if (s == "aes-256-siv" || s == "aes256siv" || s == "AES-256-SIV" || s == "AES256SIV")
+        return switch_encrypt::EncryptType::Aes256Siv;
+    if (s == "aes-128-ocb" || s == "aes128ocb" || s == "AES-128-OCB" || s == "AES128OCB")
+        return switch_encrypt::EncryptType::Aes128Ocb;
+    if (s == "aes-192-ocb" || s == "aes192ocb" || s == "AES-192-OCB" || s == "AES192OCB")
+        return switch_encrypt::EncryptType::Aes192Ocb;
+    if (s == "aes-256-ocb" || s == "aes256ocb" || s == "AES-256-OCB" || s == "AES256OCB")
+        return switch_encrypt::EncryptType::Aes256Ocb;
+    return std::nullopt;
+}
+
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -104,50 +142,13 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 return std::nullopt;
             }
             std::string_view type_str{argv[++i]};
-            // AES variants
-            if (type_str == "aes-128" || type_str == "aes128" || type_str == "AES-128" || type_str == "AES128") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes128;
-            } else if (type_str == "aes-192" || type_str == "aes192" || type_str == "AES-192" || type_str == "AES192") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes192;
-            } else if (type_str == "aes-256" || type_str == "aes256" || type_str == "AES-256" || type_str == "AES256") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes256;
-            // ChaCha20-Poly1305 AEAD (IETF, 12-byte nonce, libsodium backend)
-            } else if (type_str == "chacha20" || type_str == "ChaCha20" || type_str == "CHACHA20") {
-                args.encrypt_type = switch_encrypt::EncryptType::ChaCha20;
-            // XChaCha20-Poly1305 AEAD (IETF, 24-byte nonce, libsodium backend)
-            } else if (type_str == "xchacha20" || type_str == "XChaCha20" || type_str == "XCHACHA20") {
-                args.encrypt_type = switch_encrypt::EncryptType::XChaCha20;
-            // AES-GCM AEAD (12-byte IV, 16-byte auth tag, OpenSSL backend)
-            } else if (type_str == "aes-128-gcm" || type_str == "aes128gcm" || type_str == "AES-128-GCM" || type_str == "AES128GCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes128Gcm;
-            } else if (type_str == "aes-192-gcm" || type_str == "aes192gcm" || type_str == "AES-192-GCM" || type_str == "AES192GCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes192Gcm;
-            } else if (type_str == "aes-256-gcm" || type_str == "aes256gcm" || type_str == "AES-256-GCM" || type_str == "AES256GCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes256Gcm;
-            // AES-CCM AEAD (NIST SP 800-38C, 12-byte nonce, 16-byte auth tag, OpenSSL backend)
-            } else if (type_str == "aes-128-ccm" || type_str == "aes128ccm" || type_str == "AES-128-CCM" || type_str == "AES128CCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes128Ccm;
-            } else if (type_str == "aes-192-ccm" || type_str == "aes192ccm" || type_str == "AES-192-CCM" || type_str == "AES192CCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes192Ccm;
-            } else if (type_str == "aes-256-ccm" || type_str == "aes256ccm" || type_str == "AES-256-CCM" || type_str == "AES256CCM") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes256Ccm;
-            // AES-SIV RFC 5297 (deterministic AEAD, safe against nonce reuse)
-            } else if (type_str == "aes-128-siv" || type_str == "aes128siv" || type_str == "AES-128-SIV" || type_str == "AES128SIV") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes128Siv;
-            } else if (type_str == "aes-256-siv" || type_str == "aes256siv" || type_str == "AES-256-SIV" || type_str == "AES256SIV") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes256Siv;
-            // AES-OCB AEAD (RFC 7253, 12-byte nonce, 16-byte auth tag, OpenSSL backend)
-            } else if (type_str == "aes-128-ocb" || type_str == "aes128ocb" || type_str == "AES-128-OCB" || type_str == "AES128OCB") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes128Ocb;
-            } else if (type_str == "aes-192-ocb" || type_str == "aes192ocb" || type_str == "AES-192-OCB" || type_str == "AES192OCB") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes192Ocb;
-            } else if (type_str == "aes-256-ocb" || type_str == "aes256ocb" || type_str == "AES-256-OCB" || type_str == "AES256OCB") {
-                args.encrypt_type = switch_encrypt::EncryptType::Aes256Ocb;
-            } else {
+            auto parsed = parse_encrypt_type_name(type_str);
+            if (!parsed) {
                 std::cerr << "switch: unknown encryption type '" << type_str << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
                 return std::nullopt;
             }
+            args.encrypt_type = *parsed;
             args.cmd = Command::Encrypt;
             // F15: Consume positional input file (consistent with --encode)
             if (i + 1 < argc && argv[i + 1][0] != '-') {
@@ -174,43 +175,13 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 return std::nullopt;
             }
             std::string_view kg_name{argv[++i]};
-            if (kg_name == "aes-128" || kg_name == "aes128" || kg_name == "AES-128" || kg_name == "AES128") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes128;
-            } else if (kg_name == "aes-192" || kg_name == "aes192" || kg_name == "AES-192" || kg_name == "AES192") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes192;
-            } else if (kg_name == "aes-256" || kg_name == "aes256" || kg_name == "AES-256" || kg_name == "AES256") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes256;
-            } else if (kg_name == "chacha20" || kg_name == "ChaCha20" || kg_name == "CHACHA20") {
-                args.key_gen_type = switch_encrypt::EncryptType::ChaCha20;
-            } else if (kg_name == "xchacha20" || kg_name == "XChaCha20" || kg_name == "XCHACHA20") {
-                args.key_gen_type = switch_encrypt::EncryptType::XChaCha20;
-            } else if (kg_name == "aes-128-gcm" || kg_name == "aes128gcm" || kg_name == "AES-128-GCM" || kg_name == "AES128GCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes128Gcm;
-            } else if (kg_name == "aes-192-gcm" || kg_name == "aes192gcm" || kg_name == "AES-192-GCM" || kg_name == "AES192GCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes192Gcm;
-            } else if (kg_name == "aes-256-gcm" || kg_name == "aes256gcm" || kg_name == "AES-256-GCM" || kg_name == "AES256GCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes256Gcm;
-            } else if (kg_name == "aes-128-ccm" || kg_name == "aes128ccm" || kg_name == "AES-128-CCM" || kg_name == "AES128CCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes128Ccm;
-            } else if (kg_name == "aes-192-ccm" || kg_name == "aes192ccm" || kg_name == "AES-192-CCM" || kg_name == "AES192CCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes192Ccm;
-            } else if (kg_name == "aes-256-ccm" || kg_name == "aes256ccm" || kg_name == "AES-256-CCM" || kg_name == "AES256CCM") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes256Ccm;
-            } else if (kg_name == "aes-128-siv" || kg_name == "aes128siv" || kg_name == "AES-128-SIV" || kg_name == "AES128SIV") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes128Siv;
-            } else if (kg_name == "aes-256-siv" || kg_name == "aes256siv" || kg_name == "AES-256-SIV" || kg_name == "AES256SIV") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes256Siv;
-            } else if (kg_name == "aes-128-ocb" || kg_name == "aes128ocb" || kg_name == "AES-128-OCB" || kg_name == "AES128OCB") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes128Ocb;
-            } else if (kg_name == "aes-192-ocb" || kg_name == "aes192ocb" || kg_name == "AES-192-OCB" || kg_name == "AES192OCB") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes192Ocb;
-            } else if (kg_name == "aes-256-ocb" || kg_name == "aes256ocb" || kg_name == "AES-256-OCB" || kg_name == "AES256OCB") {
-                args.key_gen_type = switch_encrypt::EncryptType::Aes256Ocb;
-            } else {
+            auto kg_parsed = parse_encrypt_type_name(kg_name);
+            if (!kg_parsed) {
                 std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
                           << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
                 return std::nullopt;
             }
+            args.key_gen_type = *kg_parsed;
             args.cmd = Command::KeyGenerator;
             continue;
         }

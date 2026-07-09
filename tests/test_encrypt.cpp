@@ -702,7 +702,8 @@ TEST_CASE("encrypt_file: all three types produce self-decryptable wrapper") {
 
         CHECK(content.find("# Encrypted by Switch") != std::string::npos);
         if (tc.type == EncryptType::XChaCha20) {
-            CHECK(content.find("from nacl") != std::string::npos);
+            bool has_nacl = content.find("nacl") != std::string::npos;
+            CHECK(has_nacl);  // XChaCha20 uses nacl._sodium FFI
         } else {
             CHECK(content.find("from cryptography") != std::string::npos);
         }

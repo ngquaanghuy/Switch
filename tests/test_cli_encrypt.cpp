@@ -583,7 +583,7 @@ TEST_CASE("encrypt_file e2e: XChaCha20-Poly1305 output is runnable Python") {
     // Verify wrapper structure
     std::string output = read_file(output_path);
     CHECK(output.find("# Encrypted by Switch") != std::string::npos);
-    CHECK(output.find("from nacl") != std::string::npos);
+    CHECK(output.find("nacl") != std::string::npos);  // XChaCha20 uses nacl._sodium
     CHECK(output.find("exec(") != std::string::npos);
 
     // Verify runnable

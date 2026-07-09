@@ -42,25 +42,20 @@ std::string all_encrypt_names();
 size_t expected_key_len(EncryptType type);
 
 // Get expected nonce/IV byte count for each encryption type.
-// Returns 16 for AES (IV), 12 for ChaCha20 (IETF nonce).
+// AES-CBC: 16, AES-GCM/CCM/OCB/ChaCha20: 12, XChaCha20: 24, SIV: 0 (optional).
 size_t expected_nonce_len(EncryptType type);
 
 // Check if type is a stream cipher (ChaCha20/XChaCha20).
 bool is_stream_cipher(EncryptType type);
 
-// Encrypt plaintext.
-// AES: AES-CBC + PKCS7 padding. key=16/24/32 bytes, iv=16 bytes.
-// ChaCha20: ChaCha20-Poly1305 AEAD (IETF). key=32 bytes, nonce=12 bytes. Ciphertext = plaintext + 16-byte MAC.
-// Returns ciphertext. Empty on error.
+// Encrypt plaintext. Returns ciphertext (empty on error).
+// Ciphertext includes auth tag where applicable (GCM/CCM/OCB/SIV: +16 bytes, ChaCha20: +16, XChaCha20: +16).
 std::vector<uint8_t> encrypt(EncryptType type,
                               const std::vector<uint8_t>& plaintext,
                               const std::vector<uint8_t>& key,
                               const std::vector<uint8_t>& iv_or_nonce);
 
-// Decrypt ciphertext.
-// AES: AES-CBC + PKCS7 unpadding.
-// ChaCha20: ChaCha20-Poly1305 AEAD decrypt with MAC verification.
-// Returns plaintext bytes. Empty on error.
+// Decrypt ciphertext. Returns plaintext (empty on error / tag verification failed).
 std::vector<uint8_t> decrypt(EncryptType type,
                               const std::vector<uint8_t>& ciphertext,
                               const std::vector<uint8_t>& key,

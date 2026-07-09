@@ -455,6 +455,7 @@ std::vector<uint8_t> aes_ccm_encrypt(const std::vector<uint8_t>& plaintext,
     ok = ok && (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
     ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, CCM_TAG_LEN, nullptr) == 1);
     ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_L, CCM_L, nullptr) == 1);
+    // Note: SET_MSGLEN returns 0 (not 1) in OpenSSL 3.x — not an error, value is set internally.
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_MSGLEN, static_cast<int>(plaintext.size()), nullptr);
     ok = ok && (EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), nonce.data()) == 1);
     ok = ok && (EVP_EncryptUpdate(ctx, ciphertext.data(), &out_len,
@@ -490,6 +491,7 @@ std::vector<uint8_t> aes_ccm_decrypt(const std::vector<uint8_t>& ciphertext,
     bool ok = true;
     ok = ok && (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) == 1);
     ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_L, CCM_L, nullptr) == 1);
+    // Note: SET_MSGLEN returns 0 (not 1) in OpenSSL 3.x — not an error, value is set internally.
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_MSGLEN, static_cast<int>(enc_len), nullptr);
     ok = ok && (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_CCM_SET_TAG, CCM_TAG_LEN,
                                     const_cast<uint8_t*>(ciphertext.data() + enc_len)) == 1);
@@ -572,9 +574,22 @@ static std::vector<uint8_t> siv_s2v(const uint8_t* cmac_key,
     // Step 3: Double D
     gf128_double(d.data());
 
-    // Step 4: D ^= CMAC(K1, plaintext)
-    auto cmac_pt = cmac_aes128(cmac_key, plaintext, pt_len);
-    for (int i = 0; i < 16; ++i) d[i] ^= cmac_pt[i];
+    // Step 4: D ^= pad(plaintext) per RFC 5297 Section 2.3
+    // For len >= 16 bytes: XOR with last block XOR 0xFF...FF
+    // For len < 16 bytes: CMAC(K1, plaintext || 1 || 0^pad)
+    if (pt_len >= 16) {
+        const uint8_t* last_block = plaintext + pt_len - 16;
+        uint8_t ones[16];
+        std::memset(ones, 0xFF, 16);
+        for (int i = 0; i < 16; ++i) d[i] ^= (last_block[i] ^ ones[i]);
+    } else {
+        // Pad: plaintext || 0x80 || zeros to 16 bytes
+        uint8_t padded[16] = {};
+        std::memcpy(padded, plaintext, pt_len);
+        padded[pt_len] = 0x80;
+        auto cmac_padded = cmac_aes128(cmac_key, padded, 16);
+        for (int i = 0; i < 16; ++i) d[i] ^= cmac_padded[i];
+    }
 
     // Step 5: SIV = CMAC(K1, D)
     return cmac_aes128(cmac_key, d.data(), 16);
@@ -960,7 +975,7 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305\n";
     } else if (type == EncryptType::XChaCha20) {
         w += "    from nacl._sodium import ffi, lib\n";
-    } else if (type == EncryptType::Aes256Gcm) {
+    } else if (type == EncryptType::Aes128Gcm || type == EncryptType::Aes192Gcm || type == EncryptType::Aes256Gcm) {
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n";
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
         w += "    from cryptography.hazmat.primitives.ciphers.aead import AESCCM\n";
@@ -1003,7 +1018,7 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "            _ct, len(_ct), ffi.NULL, 0, _nonce, _key) != 0:\n";
         w += "        raise ValueError('XChaCha20-Poly1305 decryption failed (bad key or nonce)')\n";
         w += "    _pt = bytes(_pt_buf)[:_pt_len[0]]\n";
-    } else if (type == EncryptType::Aes256Gcm) {
+    } else if (type == EncryptType::Aes128Gcm || type == EncryptType::Aes192Gcm || type == EncryptType::Aes256Gcm) {
         w += "    _box = AESGCM(_key)\n";
         w += "    _pt = _box.decrypt(_iv, _ct, None)\n";
     } else if (type == EncryptType::Aes128Ccm || type == EncryptType::Aes192Ccm || type == EncryptType::Aes256Ccm) {
@@ -1024,7 +1039,11 @@ std::string make_python_decrypt_wrapper(EncryptType type,
         w += "    def _s2v(k, pt):\n";
         w += "        d = _cmac128(k, b'')\n";
         w += "        d = _gf128dbl(d)\n";
-        w += "        d = bytes(a ^ b for a, b in zip(d, _cmac128(k, pt)))\n";
+        w += "        if len(pt) >= 16:\n";
+        w += "            d = bytes(a ^ b ^ 0xFF for a, b in zip(d, pt[-16:]))\n";
+        w += "        else:\n";
+        w += "            padded = pt + b'\\x80' + b'\\x00' * (15 - len(pt))\n";
+        w += "            d = bytes(a ^ b for a, b in zip(d, _cmac128(k, padded)))\n";
         w += "        return _cmac128(k, d)\n";
         w += "    _siv = bytes(_ct[:16])\n";
         w += "    _iv = bytearray(_siv); _iv[0] &= 0x7F\n";
