@@ -10,6 +10,7 @@ namespace switch_obf {
 // Supported obfuscation techniques.
 enum class ObfType {
     NameMangling,   // Rename variables/functions/classes to short obfuscated names
+    StringEncoding, // Encode string literals (chr(), bytes(), base64)
 };
 
 // Parse an obfuscation technique name (case-insensitive).

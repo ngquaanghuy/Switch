@@ -26,18 +26,20 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
     };
 
     if (ieq(name, "namemangling")) return ObfType::NameMangling;
+    if (ieq(name, "stringencoding")) return ObfType::StringEncoding;
     return std::nullopt;
 }
 
 std::string_view obf_type_name(ObfType type) {
     switch (type) {
     case ObfType::NameMangling: return "namemangling";
+    case ObfType::StringEncoding: return "stringencoding";
     }
     return "unknown";
 }
 
 std::string all_obf_names() {
-    return "namemangling";
+    return "namemangling, stringencoding";
 }
 
 // ---------------------------------------------------------------------------
@@ -45,8 +47,7 @@ std::string all_obf_names() {
 // ---------------------------------------------------------------------------
 
 // Find the obfuscation script path.
-// Tries: 1) SCRIPT_DIR relative to binary, 2) hardcoded dev path.
-static std::string find_script_path() {
+static std::string find_script_path(const std::string& script_name) {
     // In development: script is at ../scripts/ relative to binary
     // Binary is at build/switch, script at scripts/obf_namemangling.py
     // We try relative to /proc/self/exe on Linux, or fallback to cwd-relative
@@ -61,8 +62,8 @@ static std::string find_script_path() {
         if (last_slash) {
             *last_slash = '\0';
             std::string bin_dir = exe_path;
-            // Try <bin_dir>/../scripts/obf_namemangling.py
-            std::string candidate = bin_dir + "/../scripts/obf_namemangling.py";
+            // Try <bin_dir>/../scripts/<script_name>
+            std::string candidate = bin_dir + "/../scripts/" + script_name;
             FILE* f = fopen(candidate.c_str(), "r");
             if (f) {
                 fclose(f);
@@ -72,10 +73,10 @@ static std::string find_script_path() {
     }
 
     // Fallback: try from working directory
-    FILE* f = fopen("scripts/obf_namemangling.py", "r");
+    FILE* f = fopen(("scripts/" + script_name).c_str(), "r");
     if (f) {
         fclose(f);
-        return "scripts/obf_namemangling.py";
+        return "scripts/" + script_name;
     }
 
     return "";
@@ -84,7 +85,14 @@ static std::string find_script_path() {
 std::string obfuscate(ObfType type, const std::string& source) {
     if (source.empty()) return source;
 
-    std::string script_path = find_script_path();
+    // Select script based on technique
+    std::string script_name;
+    switch (type) {
+    case ObfType::NameMangling:  script_name = "obf_namemangling.py"; break;
+    case ObfType::StringEncoding: script_name = "obf_stringencode.py"; break;
+    }
+
+    std::string script_path = find_script_path(script_name);
     if (script_path.empty()) {
         return ""; // script not found
     }

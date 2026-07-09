@@ -69,7 +69,7 @@ src/
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
 | `--key-generator <type>` | Working | Generates random key for given encryption type, prints hex to stdout |
-| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling. Can work standalone or with --encode/--encrypt |
+| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding. Can work standalone or with --encode/--encrypt |
 | `--obf-list` | Working | List all obfuscation techniques |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |
