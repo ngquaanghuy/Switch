@@ -302,6 +302,20 @@ std::optional<Args> parse(int argc, const char* argv[]) {
         }
     }
 
+    // Validate: command-setting flags must not conflict
+    // --key-generator is standalone only, cannot combine with --encode/--encrypt/--obf
+    if (args.cmd == Command::KeyGenerator) {
+        if (args.encode_type || args.encrypt_type || !args.obf_types.empty()) {
+            std::cerr << "switch: --key-generator cannot be combined with --encode, --encrypt, or --obf\n";
+            return std::nullopt;
+        }
+    }
+    // --encode and --encrypt are mutually exclusive
+    if (args.encode_type && args.encrypt_type) {
+        std::cerr << "switch: --encode and --encrypt are mutually exclusive\n";
+        return std::nullopt;
+    }
+
     return args;
 }
 
