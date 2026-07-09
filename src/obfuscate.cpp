@@ -27,6 +27,7 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
 
     if (ieq(name, "namemangling")) return ObfType::NameMangling;
     if (ieq(name, "stringencoding")) return ObfType::StringEncoding;
+    if (ieq(name, "docstrip")) return ObfType::DocStrip;
     return std::nullopt;
 }
 
@@ -34,12 +35,13 @@ std::string_view obf_type_name(ObfType type) {
     switch (type) {
     case ObfType::NameMangling: return "namemangling";
     case ObfType::StringEncoding: return "stringencoding";
+    case ObfType::DocStrip: return "docstrip";
     }
     return "unknown";
 }
 
 std::string all_obf_names() {
-    return "namemangling, stringencoding";
+    return "namemangling, stringencoding, docstrip";
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +92,7 @@ std::string obfuscate(ObfType type, const std::string& source) {
     switch (type) {
     case ObfType::NameMangling:  script_name = "obf_namemangling.py"; break;
     case ObfType::StringEncoding: script_name = "obf_stringencode.py"; break;
+    case ObfType::DocStrip: script_name = "obf_docstrip.py"; break;
     }
 
     std::string script_path = find_script_path(script_name);
