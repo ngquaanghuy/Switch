@@ -26,7 +26,7 @@ std::string_view obf_type_name(ObfType type);
 std::string all_obf_names();
 
 // Apply obfuscation to Python source code.
-// Returns obfuscated source. Empty string on error.
-std::string obfuscate(ObfType type, const std::string& source);
+// Returns obfuscated source. std::nullopt on error.
+std::optional<std::string> obfuscate(ObfType type, const std::string& source);
 
 } // namespace switch_obf

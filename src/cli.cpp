@@ -121,6 +121,11 @@ std::optional<Args> parse(int argc, const char* argv[]) {
                 std::string part = (comma == std::string::npos)
                     ? obf_arg.substr(pos)
                     : obf_arg.substr(pos, comma - pos);
+                // Trim leading/trailing whitespace
+                size_t start = part.find_first_not_of(" \t");
+                if (start != std::string::npos) {
+                    part = part.substr(start, part.find_last_not_of(" \t") - start + 1);
+                }
                 auto parsed = switch_obf::parse_obf_type(part);
                 if (!parsed) {
                     std::cerr << "switch: unknown obfuscation type '" << part << "'\n"

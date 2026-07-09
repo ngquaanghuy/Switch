@@ -41,11 +41,6 @@ class StringEncoder(ast.NodeTransformer):
             args=[ast.Constant(value=ord(c))],
             keywords=[]
         ) for c in s]
-        join_call = ast.Call(
-            func=ast.Constant(value=''),
-            args=[],
-            keywords=[ast.keyword(arg='sep', value=ast.Constant(value=''))]
-        )
         return ast.Call(
             func=ast.Attribute(
                 value=ast.Constant(value=''),

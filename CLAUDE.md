@@ -37,16 +37,24 @@ include/switch/
   cli.hpp       — Command enum, Args struct, parse/print declarations
   encode.hpp    — EncodeType enum, encode API, make_python_wrapper, encode_file
   encrypt.hpp   — EncryptType enum, AES+ChaCha20 encrypt/decrypt API, encrypt_file, make_python_decrypt_wrapper
+  obfuscate.hpp — ObfType enum, parse_obf_type, obfuscate API
   version.hpp   — version macros (SWITCH_VERSION_STRING, SWITCH_PYTHON_MIN_*)
 
 src/
-  main.cpp      — dispatch: parse args → route to Help/Version/EncodeList/Encode/Encrypt
+  main.cpp      — dispatch: parse args → route to Help/Version/EncodeList/EncryptList/KeyGenerator/Encode/Encrypt/Obfuscate
   cli.cpp       — arg parsing (manual argv loop, no library), help/version printing
   encode.cpp    — all encoding implementations + Python wrapper generation + file I/O
   encrypt.cpp   — AES-CBC (OpenSSL EVP) + ChaCha20/XChaCha20-Poly1305 (libsodium) encrypt/decrypt, Python decrypt wrapper
+  obfuscate.cpp — subprocess calls to Python scripts for obfuscation (name mangling, string encoding, doc strip, literal)
+
+scripts/
+  obf_namemangling.py — AST-based identifier renaming
+  obf_stringencode.py — string literal encoding (chr, bytes, base64)
+  obf_docstrip.py     — docstring/comment removal
+  obf_literal.py      — numeric/boolean/None literal obfuscation
 ```
 
-**Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium).
+**Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium), `switch_obf` (obfuscation — Python subprocess scripts).
 
 ## Key Design Decisions
 
@@ -69,7 +77,7 @@ src/
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
 | `--key-generator <type>` | Working | Generates random key for given encryption type, prints hex to stdout |
-| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding. Can work standalone or with --encode/--encrypt |
+| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal. Can work standalone or with --encode/--encrypt |
 | `--obf-list` | Working | List all obfuscation techniques |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |

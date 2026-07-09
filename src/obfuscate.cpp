@@ -9,6 +9,21 @@
 namespace switch_obf {
 
 // ---------------------------------------------------------------------------
+// Python availability check (cached)
+// ---------------------------------------------------------------------------
+
+static bool python3_available() {
+    static int cached = -1; // -1 = unchecked, 0 = unavailable, 1 = available
+    if (cached >= 0) return cached == 1;
+    cached = (system("python3 -c '' >/dev/null 2>&1") == 0) ? 1 : 0;
+    if (!cached) {
+        fprintf(stderr, "switch: python3 is not installed or not in PATH\n"
+                        "switch: obfuscation requires Python 3.8+\n");
+    }
+    return cached == 1;
+}
+
+// ---------------------------------------------------------------------------
 // Type resolution
 // ---------------------------------------------------------------------------
 
@@ -86,8 +101,10 @@ static std::string find_script_path(const std::string& script_name) {
     return "";
 }
 
-std::string obfuscate(ObfType type, const std::string& source) {
+std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     if (source.empty()) return source;
+
+    if (!python3_available()) return std::nullopt;
 
     // Select script based on technique
     std::string script_name;
@@ -100,59 +117,95 @@ std::string obfuscate(ObfType type, const std::string& source) {
 
     std::string script_path = find_script_path(script_name);
     if (script_path.empty()) {
-        return ""; // script not found
+        return std::nullopt; // script not found
     }
 
-    // Build command: python3 <script> < /dev/stdin
-    // We pipe source via popen with "w" mode, then read output
-    std::string cmd = "python3 \"" + script_path + "\" 2>/dev/null";
-
-    // Write source to script stdin, read obfuscated output
-    // Use popen in "r+" mode doesn't work well. Instead:
-    // Write to temp file, run script reading from it, capture output
-
-    // Simple approach: use popen with a pipe
-    // We'll write source to a temp file, run script, read output
+    // Write source to temp input file, capture output + stderr
     char tmp_in[] = "/tmp/switch_obf_in_XXXXXX";
     char tmp_out[] = "/tmp/switch_obf_out_XXXXXX";
+    char tmp_err[] = "/tmp/switch_obf_err_XXXXXX";
     int fd_in = mkstemp(tmp_in);
     int fd_out = mkstemp(tmp_out);
+    int fd_err = mkstemp(tmp_err);
 
-    if (fd_in < 0 || fd_out < 0) {
+    if (fd_in < 0 || fd_out < 0 || fd_err < 0) {
         if (fd_in >= 0) { close(fd_in); unlink(tmp_in); }
         if (fd_out >= 0) { close(fd_out); unlink(tmp_out); }
-        return "";
+        if (fd_err >= 0) { close(fd_err); unlink(tmp_err); }
+        return std::nullopt;
     }
 
-    // Write source to temp input file
-    write(fd_in, source.data(), source.size());
+    // F3: Check write() return value for partial writes
+    const char* src_ptr = source.data();
+    size_t remaining = source.size();
+    while (remaining > 0) {
+        ssize_t written = write(fd_in, src_ptr, remaining);
+        if (written <= 0) {
+            close(fd_in); unlink(tmp_in);
+            close(fd_out); unlink(tmp_out);
+            close(fd_err); unlink(tmp_err);
+            return std::nullopt;
+        }
+        src_ptr += written;
+        remaining -= static_cast<size_t>(written);
+    }
     close(fd_in);
 
-    // Run Python script
+    // Run Python script — capture stderr separately for diagnostics
     std::string run_cmd = "python3 \"" + script_path + "\" < \"" + tmp_in
-                        + "\" > \"" + tmp_out + "\" 2>/dev/null";
+                        + "\" > \"" + tmp_out + "\" 2>\"" + tmp_err + "\"";
     int rc = system(run_cmd.c_str());
 
-    // Read output
-    std::string result;
-    if (rc == 0) {
-        FILE* f = fopen(tmp_out, "r");
+    // Read stderr for error diagnostics (F6)
+    std::string stderr_output;
+    {
+        FILE* f = fopen(tmp_err, "r");
         if (f) {
             fseek(f, 0, SEEK_END);
-            long fsize = ftell(f);
+            long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
-            if (fsize > 0) {
-                result.resize(static_cast<size_t>(fsize));
-                fread(result.data(), 1, static_cast<size_t>(fsize), f);
+            if (sz > 0) {
+                stderr_output.resize(static_cast<size_t>(sz));
+                size_t nread = fread(stderr_output.data(), 1, static_cast<size_t>(sz), f);
+                stderr_output.resize(nread);
             }
             fclose(f);
         }
     }
 
-    // Cleanup temp files
+    // Cleanup input and stderr temp files
     unlink(tmp_in);
-    unlink(tmp_out);
+    unlink(tmp_err);
 
+    if (rc != 0) {
+        unlink(tmp_out);
+        // F6: Surface Python error output instead of silently discarding
+        if (!stderr_output.empty()) {
+            fprintf(stderr, "switch: python obfuscation error:\n%s\n", stderr_output.c_str());
+        }
+        return std::nullopt;
+    }
+
+    // F4: Check fread() return value and resize result to actual bytes read
+    std::string result;
+    {
+        FILE* f = fopen(tmp_out, "r");
+        if (!f) {
+            unlink(tmp_out);
+            return std::nullopt;
+        }
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (fsize > 0) {
+            result.resize(static_cast<size_t>(fsize));
+            size_t nread = fread(result.data(), 1, static_cast<size_t>(fsize), f);
+            result.resize(nread); // Trim to actual bytes read
+        }
+        fclose(f);
+    }
+
+    unlink(tmp_out);
     return result;
 }
 
