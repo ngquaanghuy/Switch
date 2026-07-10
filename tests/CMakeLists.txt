@@ -39,6 +39,7 @@ add_executable(test_cli_encode
     ${CMAKE_SOURCE_DIR}/src/encode.cpp
     ${CMAKE_SOURCE_DIR}/src/encrypt.cpp
     ${CMAKE_SOURCE_DIR}/src/obfuscate.cpp
+    ${CMAKE_SOURCE_DIR}/src/scramble.cpp
 )
 
 target_include_directories(test_cli_encode PRIVATE
@@ -82,6 +83,7 @@ add_executable(test_cli_encrypt
     ${CMAKE_SOURCE_DIR}/src/encrypt.cpp
     ${CMAKE_SOURCE_DIR}/src/encode.cpp
     ${CMAKE_SOURCE_DIR}/src/obfuscate.cpp
+    ${CMAKE_SOURCE_DIR}/src/scramble.cpp
 )
 
 target_include_directories(test_cli_encrypt PRIVATE
