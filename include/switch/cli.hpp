@@ -20,7 +20,6 @@ enum class Command {
     EncodeList,
     Encrypt,
     EncryptList,
-    KeyGenerator,
     Obfuscate,      // standalone --obf (no --encode/--encrypt)
     Unknown,
 };
@@ -40,7 +39,6 @@ struct Args {
     std::optional<std::string> encrypt_iv;   // --iv <hex> (AES)
     std::optional<std::string> encrypt_nonce; // --nonce <hex> (ChaCha20/XChaCha20)
     std::optional<std::string> output_file;   // -o <output>
-    std::optional<switch_encrypt::EncryptType> key_gen_type; // --key-generator <type>
     std::vector<switch_obf::ObfType> obf_types;  // --obf <type> (repeatable)
     bool obf_list = false;                         // --obf-list flag
 };
