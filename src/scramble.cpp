@@ -103,6 +103,8 @@ private:
     std::mt19937 rng_;
     std::unordered_map<std::string, std::string> map_;
     std::unordered_set<std::string> import_names_;  // module names from import statements
+    std::unordered_set<std::string> module_names_;   // names that are module objects (for dot-attr)
+    bool mod_seen_ = false;                          // previous id was a module object
     int scope_level_ = 0;
 
     // --- Helpers ---
@@ -153,6 +155,10 @@ private:
 
         while (i < n) {
             char c = src[i];
+            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            if (state == State::NORMAL && mod_seen_ && c != '.' && !is_id_start(c)) {
+                mod_seen_ = false;
+            }
 
             switch (state) {
 
@@ -181,6 +187,11 @@ private:
                         while (i < n && is_id_char(src[i])) ++i;
                     }
                     continue;
+                } else if (c == '.' && mod_seen_) {
+                    // Dot after a module name — skip it (part of module.attr access)
+                    // Keep mod_seen_ = true for chained access (os.path.join)
+                    ++i;
+                    continue;
                 } else if (is_id_start(c)) {
                     std::string id = collect_id(src, i);
 
@@ -203,8 +214,17 @@ private:
                             if (!is_from) {
                                 import_names_.insert(peek_id);
                             }
+                            // Track module names for dot-attribute access (e.g., os.listdir())
+                            module_names_.insert(peek_id);
                             // For "from X import Y": Y names will be handled by normal collection
                             // (they get mapped which is correct — they're user-defined aliases)
+                        }
+                    } else if (mod_seen_) {
+                        // This identifier follows a module name — it's an attribute, skip it
+                        // Keep mod_seen_ = true for chained access (os.path.join)
+                        // Reset only if not a module name itself
+                        if (module_names_.count(id) == 0) {
+                            mod_seen_ = false;
                         }
                     } else if (!is_keyword(id) && !is_builtin(id) && import_names_.count(id) == 0) {
                         // Skip keywords, builtins, dunders
@@ -212,6 +232,10 @@ private:
                         if (!is_dunder) {
                             map_id(id);
                         }
+                    }
+                    // Check if this identifier is a module name for dot-attribute tracking
+                    if (module_names_.count(id) > 0) {
+                        mod_seen_ = true;
                     }
                 } else {
                     // Not an identifier start — just advance
@@ -262,6 +286,10 @@ private:
 
         if (brace_depth > 0) {
             // Inside f-string expression { ... }
+            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            if (mod_seen_ && c != '.' && !is_id_start(c)) {
+                mod_seen_ = false;
+            }
             if (c == '{') {
                 ++brace_depth;
             } else if (c == '}') {
@@ -278,11 +306,22 @@ private:
                     ++i;
                 }
                 return; // i already past closing quote
+            } else if (c == '.' && mod_seen_) {
+                // Dot after a module name inside f-string expression — skip
+                ++i;
+                return;
             } else if (is_id_start(c)) {
                 std::string id = collect_id(src, i);
-                if (!is_keyword(id) && !is_builtin(id)) {
+                if (mod_seen_) {
+                    // Attribute of a module — skip mapping
+                    // Keep mod_seen_ = true for chained access (os.path.join)
+                } else if (!is_keyword(id) && !is_builtin(id)) {
                     bool is_dunder = id.size() > 4 && id.substr(0, 2) == "__" && id.substr(id.size() - 2) == "__";
                     if (!is_dunder) map_id(id);
+                }
+                // Check if this identifier is a module name for dot-attribute tracking
+                if (module_names_.count(id) > 0) {
+                    mod_seen_ = true;
                 }
                 return; // collect_id already advanced i
             }
@@ -312,6 +351,10 @@ private:
 
         while (i < n) {
             char c = src[i];
+            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            if (state == State::NORMAL && mod_seen_ && c != '.' && !is_id_start(c)) {
+                mod_seen_ = false;
+            }
             switch (state) {
 
             case State::NORMAL:
@@ -348,6 +391,11 @@ private:
                         out += src.substr(start, i - start);
                     }
                     continue;
+                } else if (c == '.' && mod_seen_) {
+                    // Dot after a module name — output as-is (part of module.attr access)
+                    out += c;
+                    ++i;
+                    continue;
                 } else if (is_id_start(c)) {
                     size_t start = i;
                     std::string id = collect_id(src, i);
@@ -380,11 +428,22 @@ private:
                         continue;
                     }
 
-                    auto it = map_.find(id);
-                    if (it != map_.end() && import_names_.count(id) == 0) {
-                        out += it->second;
-                    } else {
+                    if (mod_seen_) {
+                        // This identifier follows a module name — it's an attribute, output as-is
+                        // Keep mod_seen_ = true for chained access (os.path.join)
+                        // Reset only when chain breaks (non-dot, non-id char later)
                         out += id;
+                    } else {
+                        auto it = map_.find(id);
+                        if (it != map_.end() && import_names_.count(id) == 0) {
+                            out += it->second;
+                        } else {
+                            out += id;
+                        }
+                    }
+                    // Check if this identifier is a module name for dot-attribute tracking
+                    if (module_names_.count(id) > 0) {
+                        mod_seen_ = true;
                     }
                     // i now points past the identifier; continue to re-examine current position
                     continue;
@@ -444,6 +503,10 @@ private:
         char delim = (state == State::FSTRING_S) ? '\'' : '"';
 
         if (brace_depth > 0) {
+            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            if (mod_seen_ && c != '.' && !is_id_start(c)) {
+                mod_seen_ = false;
+            }
             if (c == '{') {
                 ++brace_depth; out += c;
             } else if (c == '}') {
@@ -460,14 +523,32 @@ private:
                     out += src[i]; ++i;
                 }
                 return;
+            } else if (c == '.' && mod_seen_) {
+                // Dot after a module name inside f-string expression — output as-is
+                out += c;
+                ++i;
+                return;
             } else if (is_id_start(c)) {
                 size_t start = i;
                 std::string id = collect_id(src, i);
-                auto it = map_.find(id);
-                if (it != map_.end()) {
-                    out += it->second;
-                } else {
+                if (mod_seen_) {
+                    // Attribute of a module — output as-is
+                    // Keep mod_seen_ = true for chained access (os.path.join)
                     out += id;
+                    if (module_names_.count(id) == 0) {
+                        mod_seen_ = false;
+                    }
+                } else {
+                    auto it = map_.find(id);
+                    if (it != map_.end()) {
+                        out += it->second;
+                    } else {
+                        out += id;
+                    }
+                }
+                // Check if this identifier is a module name for dot-attribute tracking
+                if (module_names_.count(id) > 0) {
+                    mod_seen_ = true;
                 }
                 return;
             } else {
