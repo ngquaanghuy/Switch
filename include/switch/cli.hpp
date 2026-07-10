@@ -38,6 +38,7 @@ struct Args {
     std::optional<std::string> encrypt_key_env;  // --key-env <ENV_VAR>
     std::optional<std::string> encrypt_iv;   // --iv <hex> (AES)
     std::optional<std::string> encrypt_nonce; // --nonce <hex> (ChaCha20/XChaCha20)
+    std::optional<std::string> key_save_file; // --key-save <file> (save generated key)
     std::optional<std::string> output_file;   // -o <output>
     std::vector<switch_obf::ObfType> obf_types;  // --obf <type> (repeatable)
     bool obf_list = false;                         // --obf-list flag
