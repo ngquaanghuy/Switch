@@ -54,6 +54,7 @@ scripts/
   obf_literal.py      — numeric/boolean/None literal obfuscation
   obf_xor.py          — XOR-encode strings with random multi-byte keys
   obf_importrewrite.py — rewrite imports as obfuscated dynamic imports
+  obf_deadcode.py      — inject dense dead code (functions, classes, opaque predicates)
 ```
 
 **Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium), `switch_obf` (obfuscation — Python subprocess scripts).
@@ -79,7 +80,7 @@ scripts/
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
 | `--key-generator <type>` | Working | Generates random key for given encryption type, prints hex to stdout |
-| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite. Can work standalone or with --encode/--encrypt |
+| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode. Can work standalone or with --encode/--encrypt |
 | `--obf-list` | Working | List all obfuscation techniques |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |
