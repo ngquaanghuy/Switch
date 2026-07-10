@@ -16,6 +16,7 @@ enum class ObfType {
     XorEncoding,    // XOR-encode strings with random multi-byte keys
     ImportRewrite,  // Rewrite imports as obfuscated dynamic imports
     DeadCode,       // Inject dense dead code (functions, classes, opaque predicates)
+    ScrambleIdentifiers, // Scramble identifiers with confusable chars (C++ inline)
 };
 
 // Parse an obfuscation technique name (case-insensitive).

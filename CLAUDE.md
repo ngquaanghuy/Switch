@@ -38,6 +38,7 @@ include/switch/
   encode.hpp    — EncodeType enum, encode API, make_python_wrapper, encode_file
   encrypt.hpp   — EncryptType enum, AES+ChaCha20 encrypt/decrypt API, encrypt_file, make_python_decrypt_wrapper
   obfuscate.hpp — ObfType enum, parse_obf_type, obfuscate API
+  scramble.hpp  — scramble_identifiers API (C++ inline, no Python subprocess)
   version.hpp   — version macros (SWITCH_VERSION_STRING, SWITCH_PYTHON_MIN_*)
 
 src/
@@ -46,6 +47,7 @@ src/
   encode.cpp    — all encoding implementations + Python wrapper generation + file I/O
   encrypt.cpp   — AES-CBC (OpenSSL EVP) + ChaCha20/XChaCha20-Poly1305 (libsodium) encrypt/decrypt, Python decrypt wrapper
   obfuscate.cpp — subprocess calls to Python scripts for obfuscation (name mangling, string encoding, doc strip, literal)
+  scramble.cpp  — C++ inline identifier scrambling (confusable chars, scope-aware)
 
 scripts/
   obf_namemangling.py — AST-based identifier renaming
@@ -57,7 +59,7 @@ scripts/
   obf_deadcode.py      — inject dense dead code (functions, classes, opaque predicates)
 ```
 
-**Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium), `switch_obf` (obfuscation — Python subprocess scripts).
+**Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium), `switch_obf` (obfuscation — Python subprocess scripts), `switch_scramble` (C++ inline identifier scrambling).
 
 ## Key Design Decisions
 
@@ -79,7 +81,7 @@ scripts/
 | `--encrypt <type> <file> [--key/--key-file/--key-env <hex>] [--iv/--nonce <hex>] [--key-save <file>] [-o <out>]` | Working | 16 types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-{128,192,256}-gcm, aes-{128,192,256}-ccm, aes-{128,256}-siv, aes-{128,192,256}-ocb. Key auto-generated if omitted. IV/nonce auto-generated if omitted. |
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
-| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode. Can work standalone or with --encode/--encrypt |
+| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble. Can work standalone or with --encode/--encrypt |
 | `--obf-list` | Working | List all obfuscation techniques |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |

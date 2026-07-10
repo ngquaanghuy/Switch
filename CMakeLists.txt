@@ -68,6 +68,7 @@ set(SOURCES
     src/encode.cpp
     src/encrypt.cpp
     src/obfuscate.cpp
+    src/scramble.cpp
 )
 
 set(HEADERS

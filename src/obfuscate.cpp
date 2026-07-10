@@ -1,4 +1,5 @@
 #include "switch/obfuscate.hpp"
+#include "switch/scramble.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -47,6 +48,7 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
     if (ieq(name, "xorencoding")) return ObfType::XorEncoding;
     if (ieq(name, "importrewrite")) return ObfType::ImportRewrite;
     if (ieq(name, "deadcode")) return ObfType::DeadCode;
+    if (ieq(name, "scramble")) return ObfType::ScrambleIdentifiers;
     return std::nullopt;
 }
 
@@ -59,12 +61,13 @@ std::string_view obf_type_name(ObfType type) {
     case ObfType::XorEncoding: return "xorencoding";
     case ObfType::ImportRewrite: return "importrewrite";
     case ObfType::DeadCode: return "deadcode";
+    case ObfType::ScrambleIdentifiers: return "scramble";
     }
     return "unknown";
 }
 
 std::string all_obf_names() {
-    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode";
+    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble";
 }
 
 // ---------------------------------------------------------------------------
@@ -110,9 +113,15 @@ static std::string find_script_path(const std::string& script_name) {
 std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     if (source.empty()) return source;
 
+    // C++ inline techniques — no Python subprocess needed
+    if (type == ObfType::ScrambleIdentifiers) {
+        std::string result = switch_scramble::scramble_identifiers(source);
+        return result.empty() ? std::nullopt : std::make_optional(result);
+    }
+
     if (!python3_available()) return std::nullopt;
 
-    // Select script based on technique
+    // Python subprocess techniques — select script based on technique
     std::string script_name;
     switch (type) {
     case ObfType::NameMangling:  script_name = "obf_namemangling.py"; break;
