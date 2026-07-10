@@ -170,6 +170,19 @@ int main(int argc, const char* argv[]) {
                 return 1;
             }
             std::cerr << "switch: auto-generated key: " << key_hex << "\n";
+
+            // Save key to file if --key-save specified
+            if (args->key_save_file) {
+                std::ofstream kf_out(*args->key_save_file, std::ios::binary | std::ios::trunc);
+                if (!kf_out) {
+                    std::cerr << "switch: cannot write key file '" << *args->key_save_file
+                              << "': " << std::generic_category().message(errno) << "\n";
+                    return 1;
+                }
+                kf_out.write(key_hex.data(), static_cast<std::streamsize>(key_hex.size()));
+                kf_out.close();
+                std::cerr << "switch: key saved to " << *args->key_save_file << "\n";
+            }
         } else if (args->encrypt_key) {
             key_hex = *args->encrypt_key;
         } else if (args->encrypt_key_file) {

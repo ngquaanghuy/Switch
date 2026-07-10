@@ -76,7 +76,7 @@ scripts/
 | `--help` / `-h` | Working | |
 | `--version` / `-v` | Working | Shows platform + compiler |
 | `--encode <type> <file> [-o <out>]` | Working | 5 types: base16, base32, base58, base62, base64 |
-| `--encrypt <type> <file> [--key/--key-file/--key-env <hex>] [--iv/--nonce <hex>] [-o <out>]` | Working | 16 types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-{128,192,256}-gcm, aes-{128,192,256}-ccm, aes-{128,256}-siv, aes-{128,192,256}-ocb. Key auto-generated if omitted. IV/nonce auto-generated if omitted. |
+| `--encrypt <type> <file> [--key/--key-file/--key-env <hex>] [--iv/--nonce <hex>] [--key-save <file>] [-o <out>]` | Working | 16 types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-{128,192,256}-gcm, aes-{128,192,256}-ccm, aes-{128,256}-siv, aes-{128,192,256}-ocb. Key auto-generated if omitted. IV/nonce auto-generated if omitted. |
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
 | `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode. Can work standalone or with --encode/--encrypt |

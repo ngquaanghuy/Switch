@@ -255,6 +255,16 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
+        // --key-save <file> (save auto-generated key to file)
+        if (arg == "--key-save") {
+            if (i + 1 >= argc) {
+                std::cerr << "switch: --key-save requires a file path\n";
+                return std::nullopt;
+            }
+            args.key_save_file = argv[++i];
+            continue;
+        }
+
         // Future subcommands — parsed but not yet functional
         if (arg == "protect") {
             args.cmd = Command::Protect;
@@ -337,6 +347,7 @@ void print_help() {
               << "  --key-env <VAR>    Read hex key from environment variable\n"
               << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES-CBC) / 12 bytes (AES-GCM), optional\n"
               << "  --nonce <hex>      Hex-encoded nonce, 12 bytes (ChaCha20) / 24 bytes (XChaCha20), optional\n"
+              << "  --key-save <file>  Save auto-generated key to file\n"
               << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"
               << "  --encrypt-list     List all supported encryption types\n"
@@ -355,6 +366,7 @@ void print_help() {
               << "  switch --encrypt-list\n"
               << "  switch --encode base32 input.py -o output.py\n"
               << "  switch --encrypt aes-256 input.py          # auto-generates key, prints to stderr\n"
+              << "  switch --encrypt aes-256 input.py --key-save key.txt  # save generated key to file\n"
               << "  switch --encrypt aes-256 input.py --key <hex>  # uses provided key\n"
               << "  switch --obf namemangling input.py -o obfuscated.py\n"
               << "  switch --obf namemangling --encode base64 input.py -o output.py\n"
