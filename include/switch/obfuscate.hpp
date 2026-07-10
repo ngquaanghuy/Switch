@@ -15,6 +15,7 @@ enum class ObfType {
     Literal,        // Obfuscate numeric/boolean/None literals
     XorEncoding,    // XOR-encode strings with random multi-byte keys
     ImportRewrite,  // Rewrite imports as obfuscated dynamic imports
+    DeadCode,       // Inject dense dead code (functions, classes, opaque predicates)
 };
 
 // Parse an obfuscation technique name (case-insensitive).
