@@ -227,25 +227,6 @@ std::optional<Args> parse(int argc, const char* argv[]) {
             continue;
         }
 
-        // --key-generator <type>
-        if (arg == "--key-generator") {
-            if (i + 1 >= argc) {
-                std::cerr << "switch: --key-generator requires an encryption type\n"
-                          << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
-                return std::nullopt;
-            }
-            std::string_view kg_name{argv[++i]};
-            auto kg_parsed = parse_encrypt_type_name(kg_name);
-            if (!kg_parsed) {
-                std::cerr << "switch: unknown encryption type '" << kg_name << "'\n"
-                          << "Valid types: " << switch_encrypt::all_encrypt_names() << "\n";
-                return std::nullopt;
-            }
-            args.key_gen_type = *kg_parsed;
-            args.cmd = Command::KeyGenerator;
-            continue;
-        }
-
         // --iv <hex> (AES only)
         if (arg == "--iv") {
             if (i + 1 >= argc) {
@@ -318,13 +299,6 @@ std::optional<Args> parse(int argc, const char* argv[]) {
     }
 
     // Validate: command-setting flags must not conflict
-    // --key-generator is standalone only, cannot combine with --encode/--encrypt/--obf
-    if (args.cmd == Command::KeyGenerator) {
-        if (args.encode_type || args.encrypt_type || !args.obf_types.empty()) {
-            std::cerr << "switch: --key-generator cannot be combined with --encode, --encrypt, or --obf\n";
-            return std::nullopt;
-        }
-    }
     // --encode and --encrypt are mutually exclusive
     if (args.encode_type && args.encrypt_type) {
         std::cerr << "switch: --encode and --encrypt are mutually exclusive\n";
@@ -354,11 +328,11 @@ void print_help() {
               << "                     Types: aes-128, aes-192, aes-256, chacha20, xchacha20,\n"
               << "                             aes-{128,192,256}-gcm, aes-{128,192,256}-ccm,\n"
               << "                             aes-{128,256}-siv, aes-{128,192,256}-ocb\n"
-              << "                     Requires: --key <hex>\n"
+              << "                     Key: --key <hex>, --key-file, or --key-env (auto-generated if omitted)\n"
               << "                     AES: --iv <hex> (optional, auto-generated)\n"
               << "                     ChaCha20/XChaCha20: --nonce <hex> (optional, auto-generated)\n"
               << "                     Output runs with: python output.py\n"
-              << "  --key <hex>        Hex-encoded encryption key (required with --encrypt)\n"
+              << "  --key <hex>        Hex-encoded encryption key (auto-generated if omitted with --encrypt)\n"
               << "  --key-file <path>  Read hex key from file (whitespace stripped)\n"
               << "  --key-env <VAR>    Read hex key from environment variable\n"
               << "  --iv <hex>         Hex-encoded IV, 16 bytes (AES-CBC) / 12 bytes (AES-GCM), optional\n"
@@ -366,9 +340,6 @@ void print_help() {
               << "  -o <file>          Output file path\n"
               << "  --encode-list      List all supported encoding types\n"
               << "  --encrypt-list     List all supported encryption types\n"
-              << "  --key-generator <type>\n"
-              << "                     Generate a random key for the given encryption type\n"
-              << "                     Types: " << switch_encrypt::all_encrypt_names() << "\n"
               << "  --obf <type>       Obfuscate Python source (repeatable)\n"
               << "                     Types: " << switch_obf::all_obf_names() << "\n"
               << "  --obf-list         List all obfuscation techniques\n"
@@ -383,7 +354,8 @@ void print_help() {
               << "  switch --encode-list\n"
               << "  switch --encrypt-list\n"
               << "  switch --encode base32 input.py -o output.py\n"
-              << "  switch --encrypt aes-256 input.py --key <64-hex-chars> -o output.py\n"
+              << "  switch --encrypt aes-256 input.py          # auto-generates key, prints to stderr\n"
+              << "  switch --encrypt aes-256 input.py --key <hex>  # uses provided key\n"
               << "  switch --obf namemangling input.py -o obfuscated.py\n"
               << "  switch --obf namemangling --encode base64 input.py -o output.py\n"
               << "  python output.py                 # runs original code\n"

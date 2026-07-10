@@ -64,22 +64,6 @@ int main(int argc, const char* argv[]) {
                   << "  " << switch_encrypt::all_encrypt_names() << "\n";
         return 0;
 
-    case switch_cli::Command::KeyGenerator: {
-        if (!args->key_gen_type) {
-            std::cerr << "switch: --key-generator requires an encryption type\n"
-                      << "Usage: switch --key-generator <type>\n";
-            return 1;
-        }
-        std::string key_hex = switch_encrypt::generate_key(*args->key_gen_type);
-        if (key_hex.empty()) {
-            std::cerr << "switch: failed to generate key for "
-                      << switch_encrypt::encrypt_type_name(*args->key_gen_type) << "\n";
-            return 1;
-        }
-        std::cout << key_hex << "\n";
-        return 0;
-    }
-
     case switch_cli::Command::Encode: {
         // Validate we have input file
         if (args->positional.empty()) {
@@ -170,19 +154,23 @@ int main(int argc, const char* argv[]) {
         int key_sources = (args->encrypt_key ? 1 : 0)
                         + (args->encrypt_key_file ? 1 : 0)
                         + (args->encrypt_key_env ? 1 : 0);
-        if (key_sources == 0) {
-            std::cerr << "switch: --encrypt requires --key, --key-file, or --key-env\n"
-                      << "Usage: switch --encrypt <type> <input> --key <hex> [-o <output>]\n";
-            return 1;
-        }
         if (key_sources > 1) {
             std::cerr << "switch: --key, --key-file, and --key-env are mutually exclusive\n";
             return 1;
         }
 
-        // Resolve key hex string from the chosen source
+        // Resolve key hex string from the chosen source, or auto-generate
         std::string key_hex;
-        if (args->encrypt_key) {
+        if (key_sources == 0) {
+            // Auto-generate key
+            key_hex = switch_encrypt::generate_key(*args->encrypt_type);
+            if (key_hex.empty()) {
+                std::cerr << "switch: failed to generate key for "
+                          << switch_encrypt::encrypt_type_name(*args->encrypt_type) << "\n";
+                return 1;
+            }
+            std::cerr << "switch: auto-generated key: " << key_hex << "\n";
+        } else if (args->encrypt_key) {
             key_hex = *args->encrypt_key;
         } else if (args->encrypt_key_file) {
             std::ifstream kf(*args->encrypt_key_file, std::ios::binary);
