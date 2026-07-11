@@ -542,20 +542,21 @@ TEST_CASE("obf stacking: all 9 techniques — valid Python") {
         "result = process()\n"
         "print(result)\n";
 
-    // All 9 in recommended order: other techniques first, scramble last
-    // (scramble must be last to rename all identifiers in the final output)
+    // All 9 in recommended order:
+    // scramble MUST run before xorencoding and importrewrite
+    // (those generate code with identifiers that scramble would corrupt)
     // Order: DeadCode → NameMangling → DocStrip → Literal → StringEncoding
-    //        → XorEncoding → ImportRewrite → VariableSplitting → ScrambleIdentifiers
+    //        → ScrambleIdentifiers → XorEncoding → ImportRewrite → VariableSplitting
     std::vector<ObfType> pipeline = {
         ObfType::DeadCode,
         ObfType::NameMangling,
         ObfType::DocStrip,
         ObfType::Literal,
         ObfType::StringEncoding,
+        ObfType::ScrambleIdentifiers,  // MUST be before xorencoding/importrewrite
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
         ObfType::VariableSplitting,
-        ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
     std::string current = code;
@@ -581,7 +582,7 @@ TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
         "    return len(files)\n"
         "print(process())\n";
 
-    // All 9 techniques — scramble last to rename identifiers in final output
+    // All 9 techniques — scramble MUST run before xorencoding/importrewrite
     // Note: runtime may fail due to pre-existing technique interaction bugs
     // (namemangling scope issues, stringencoding __import__ patterns).
     // This test verifies all techniques produce valid Python syntax.
@@ -591,10 +592,10 @@ TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
         ObfType::DocStrip,
         ObfType::Literal,
         ObfType::StringEncoding,
+        ObfType::ScrambleIdentifiers,  // MUST be before xorencoding/importrewrite
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
         ObfType::VariableSplitting,
-        ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
     std::string current = code;

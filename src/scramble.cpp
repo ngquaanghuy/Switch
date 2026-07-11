@@ -62,6 +62,54 @@ static const std::unordered_set<std::string>& python_builtins() {
         "TabError", "NameError", "UnboundLocalError",
         // Common conventions
         "self", "cls",
+        // Common string/bytes methods (must not be renamed — they're built-in)
+        "encode", "decode", "format", "replace", "split", "join",
+        "strip", "lstrip", "rstrip", "upper", "lower", "title",
+        "capitalize", "startswith", "endswith", "find", "rfind",
+        "count", "center", "ljust", "rjust", "zfill", "expandtabs",
+        "translate", "maketrans", "isalnum", "isalpha", "isdigit",
+        "islower", "isupper", "isspace", "istitle", "isnumeric",
+        "isdecimal", "isidentifier", "iskeyword", "isprintable",
+        "isascii", "isascii",
+        "b64encode", "b64decode", "b32encode", "b32decode",
+        "b16encode", "b16decode", "b85encode", "b85decode",
+        "encodebytes", "decodebytes", "encode", "decode",
+        "hexlify", "unhexlify",
+        // Common list/dict/set methods
+        "append", "extend", "insert", "remove", "pop", "clear",
+        "index", "count", "sort", "reverse", "copy",
+        "keys", "values", "items", "get", "update", "setdefault",
+        "popitem", "fromkeys",
+        "add", "discard", "remove", "pop", "union", "intersection",
+        "difference", "symmetric_difference", "issubset", "issuperset",
+        // Common file/object methods
+        "read", "readline", "readlines", "write", "writelines",
+        "seek", "tell", "flush", "close", "fileno",
+        "name", "mode", "closed", "readable", "writable", "seekable",
+        // Common type check/conversion methods
+        "append", "extend", "insert", "remove", "pop", "clear",
+        "index", "count", "sort", "reverse", "copy",
+        // Common math/io methods
+        "sqrt", "log", "sin", "cos", "tan", "pow",
+        "getcwd", "listdir", "makedirs", "mkdir", "rmdir", "remove",
+        "rename", "stat", "access", "chmod", "chown",
+        "pathjoin", "dirname", "basename", "exists", "isfile", "isdir",
+        "abspath", "relpath", "realpath", "normpath", "splitext",
+        // Common JSON/yaml/xml methods
+        "dumps", "loads", "dump", "load",
+        "safe_load", "safe_dump",
+        // Common datetime methods
+        "now", "utcnow", "strftime", "strptime", "timestamp",
+        "isoformat", "fromisoformat",
+        // Common re/regex methods
+        "match", "search", "findall", "finditer", "sub", "subn",
+        "split", "compile", "fullmatch",
+        // Common os/pathlib methods
+        "getcwd", "listdir", "makedirs", "mkdir", "rmdir", "remove",
+        "rename", "stat", "access", "chmod", "chown",
+        // Common io methods
+        "read", "readline", "readlines", "write", "writelines",
+        "seek", "tell", "flush", "close",
     };
     return bis;
 }
@@ -275,14 +323,10 @@ private:
                                 continue;
                             }
                             // For "import X": X is module name → skip always
-                            // For "from X": X is module name → skip, but Y in "from X import Y" is user-mapped
-                            if (!is_from) {
-                                import_names_.insert(peek_id);
-                            }
+                            // For "from X import Y": Y is imported name → skip (must not rename)
+                            import_names_.insert(peek_id);
                             // Track module names for dot-attribute access (e.g., os.listdir())
                             module_names_.insert(peek_id);
-                            // For "from X import Y": Y names will be handled by normal collection
-                            // (they get mapped which is correct — they're user-defined aliases)
                         }
                     } else if (mod_seen_) {
                         // This identifier follows a module name — it's an attribute, skip it

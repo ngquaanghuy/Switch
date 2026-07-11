@@ -62,9 +62,9 @@ class XorEncoder(ast.NodeTransformer):
                 right=ast.Constant(value=key[0])
             )
         else:
-            # Multi-byte key: chr(c ^ key[i % len(key)])
+            # Multi-byte key: chr(c ^ key[_xi % len(key)])
             key_index = ast.BinOp(
-                left=ast.Name(id='i', ctx=ast.Load()),
+                left=ast.Name(id='_xi', ctx=ast.Load()),
                 op=ast.Mod(),
                 right=ast.Constant(value=len(key))
             )
@@ -84,16 +84,15 @@ class XorEncoder(ast.NodeTransformer):
             keywords=[]
         )
 
-        # Generator: (chr(c ^ K) for c, i in zip(encoded, range(n)))
-        # Simplified: (chr(c ^ K) for c in [...]) with index via enumerate
+        # Generator: (chr(val ^ key[idx % len(key)]) for idx, val in enumerate(encoded))
         gen = ast.GeneratorExp(
             elt=chr_call,
             generators=[
                 ast.comprehension(
                     target=ast.Tuple(
                         elts=[
+                            ast.Name(id='_xi', ctx=ast.Store()),
                             ast.Name(id='c', ctx=ast.Store()),
-                            ast.Name(id='i', ctx=ast.Store()),
                         ],
                         ctx=ast.Store()
                     ),

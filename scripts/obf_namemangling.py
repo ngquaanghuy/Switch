@@ -38,6 +38,7 @@ class NameCollector(ast.NodeVisitor):
     def __init__(self):
         self.names = set()
         self.string_refs = set()  # names that appear as string constants
+        self.imported_names = set()  # names from import statements (must not rename)
 
     def visit_FunctionDef(self, node):
         self.names.add(node.name)
@@ -78,10 +79,19 @@ class NameCollector(ast.NodeVisitor):
     visit_With = visit_For
 
     def visit_Import(self, node):
-        # Don't rename import targets
+        # Track imported module names (must not rename)
+        for alias in node.names:
+            self.imported_names.add(alias.name)
+            if alias.asname:
+                self.imported_names.add(alias.asname)
         pass
 
     def visit_ImportFrom(self, node):
+        # Track imported names from 'from X import Y'
+        for alias in node.names:
+            if alias.name != '*':
+                name = alias.asname if alias.asname else alias.name
+                self.imported_names.add(name)
         pass
 
 
@@ -173,11 +183,12 @@ def obfuscate(source):
     collector = NameCollector()
     collector.visit(tree)
 
-    # Filter: skip builtins, dunders, and names appearing as string constants
+    # Filter: skip builtins, dunders, imported names, and names appearing as string constants
     skip = set()
     skip.update(BUILTIN_NAMES)
     skip.add('self')
     skip.add('cls')
+    skip.update(collector.imported_names)  # Don't rename imported module names
     for name in collector.names:
         if name.startswith(DUNDER_PATTERN) and name.endswith(DUNDER_PATTERN) and len(name) > 2:
             skip.add(name)
