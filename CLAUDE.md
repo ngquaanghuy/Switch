@@ -58,7 +58,8 @@ scripts/
   obf_literal.py      — numeric/boolean/None literal obfuscation
   obf_xor.py          — XOR-encode strings with random multi-byte keys
   obf_importrewrite.py — rewrite imports as obfuscated dynamic imports
-  obf_deadcode.py      — inject dense dead code (functions, classes, opaque predicates)
+  obf_deadcode.py     — inject dense dead code (functions, classes, opaque predicates)
+  obf_varsplit.py     — variable splitting (bool/int/float → sub-variables)
 ```
 
 **Namespace split**: `switch_cli` (CLI parsing/display), `switch_encode` (encoding logic), `switch_encrypt` (encryption — AES via OpenSSL, ChaCha20/XChaCha20 via libsodium), `switch_obf` (obfuscation — Python subprocess scripts), `switch_scramble` (C++ inline identifier scrambling).
@@ -83,7 +84,7 @@ scripts/
 | `--encrypt <type> <file> [--key/--key-file/--key-env <hex>] [--iv/--nonce <hex>] [--key-save <file>] [-o <out>]` | Working | 16 types: aes-128, aes-192, aes-256, chacha20, xchacha20, aes-{128,192,256}-gcm, aes-{128,192,256}-ccm, aes-{128,256}-siv, aes-{128,192,256}-ocb. Key auto-generated if omitted. IV/nonce auto-generated if omitted. |
 | `--encode-list` | Working | |
 | `--encrypt-list` | Working | |
-| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble. Can work standalone or with --encode/--encrypt |
+| `--obf <type>` | Working | Obfuscate Python source (repeatable). Types: namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble, variablesplitting. Can work standalone or with --encode/--encrypt |
 | `--obf-list` | Working | List all obfuscation techniques |
 | `protect` | Stub | Prints "not yet implemented" |
 | `build` | Stub | Prints "not yet implemented" |

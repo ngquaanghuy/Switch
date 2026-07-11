@@ -17,6 +17,7 @@ enum class ObfType {
     ImportRewrite,  // Rewrite imports as obfuscated dynamic imports
     DeadCode,       // Inject dense dead code (functions, classes, opaque predicates)
     ScrambleIdentifiers, // Scramble identifiers with confusable chars (C++ inline)
+    VariableSplitting, // Split bool/int/float into sub-variables (Python AST)
 };
 
 // Parse an obfuscation technique name (case-insensitive).

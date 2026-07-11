@@ -49,6 +49,7 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
     if (ieq(name, "importrewrite")) return ObfType::ImportRewrite;
     if (ieq(name, "deadcode")) return ObfType::DeadCode;
     if (ieq(name, "scramble")) return ObfType::ScrambleIdentifiers;
+    if (ieq(name, "variablesplitting")) return ObfType::VariableSplitting;
     return std::nullopt;
 }
 
@@ -62,12 +63,13 @@ std::string_view obf_type_name(ObfType type) {
     case ObfType::ImportRewrite: return "importrewrite";
     case ObfType::DeadCode: return "deadcode";
     case ObfType::ScrambleIdentifiers: return "scramble";
+    case ObfType::VariableSplitting: return "variablesplitting";
     }
     return "unknown";
 }
 
 std::string all_obf_names() {
-    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble";
+    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble, variablesplitting";
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,7 @@ std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     case ObfType::XorEncoding: script_name = "obf_xor.py"; break;
     case ObfType::ImportRewrite: script_name = "obf_importrewrite.py"; break;
     case ObfType::DeadCode: script_name = "obf_deadcode.py"; break;
+    case ObfType::VariableSplitting: script_name = "obf_varsplit.py"; break;
     }
 
     std::string script_path = find_script_path(script_name);

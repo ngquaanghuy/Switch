@@ -42,6 +42,7 @@ TEST_CASE("obf: parse_obf_type valid names") {
     CHECK(parse_obf_type("importrewrite") == ObfType::ImportRewrite);
     CHECK(parse_obf_type("deadcode") == ObfType::DeadCode);
     CHECK(parse_obf_type("scramble") == ObfType::ScrambleIdentifiers);
+    CHECK(parse_obf_type("variablesplitting") == ObfType::VariableSplitting);
 }
 
 TEST_CASE("obf: parse_obf_type case-insensitive") {
@@ -49,6 +50,8 @@ TEST_CASE("obf: parse_obf_type case-insensitive") {
     CHECK(parse_obf_type("DeadCode") == ObfType::DeadCode);
     CHECK(parse_obf_type("NameMangling") == ObfType::NameMangling);
     CHECK(parse_obf_type("lItErAl") == ObfType::Literal);
+    CHECK(parse_obf_type("VariableSplitting") == ObfType::VariableSplitting);
+    CHECK(parse_obf_type("VARIABLESPLITTING") == ObfType::VariableSplitting);
 }
 
 TEST_CASE("obf: parse_obf_type unknown returns nullopt") {
@@ -66,9 +69,10 @@ TEST_CASE("obf: obf_type_name returns canonical name") {
     CHECK(obf_type_name(ObfType::Literal) == "literal");
     CHECK(obf_type_name(ObfType::XorEncoding) == "xorencoding");
     CHECK(obf_type_name(ObfType::ImportRewrite) == "importrewrite");
+    CHECK(obf_type_name(ObfType::VariableSplitting) == "variablesplitting");
 }
 
-TEST_CASE("obf: all_obf_names contains all eight") {
+TEST_CASE("obf: all_obf_names contains all nine") {
     std::string names = all_obf_names();
     CHECK(names.find("namemangling") != std::string::npos);
     CHECK(names.find("stringencoding") != std::string::npos);
@@ -78,6 +82,7 @@ TEST_CASE("obf: all_obf_names contains all eight") {
     CHECK(names.find("importrewrite") != std::string::npos);
     CHECK(names.find("deadcode") != std::string::npos);
     CHECK(names.find("scramble") != std::string::npos);
+    CHECK(names.find("variablesplitting") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +127,161 @@ TEST_CASE("obf: scramble — preserves module attribute access") {
     auto result = obfuscate(ObfType::ScrambleIdentifiers, code);
     REQUIRE(result.has_value());
     CHECK(result->find("os.listdir") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+// ---------------------------------------------------------------------------
+// Variable splitting (bool/int/float)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: variablesplitting — bool split valid Python") {
+    std::string code = "flag = True\nprint(flag)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — bool split runs correctly") {
+    std::string code = "flag = True\nprint(flag)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("True") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — False split runs correctly") {
+    std::string code = "flag = False\nprint(flag)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("False") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — int split valid Python") {
+    std::string code = "x = 42\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — int split runs correctly") {
+    std::string code = "x = 42\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("42") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — negative int split") {
+    std::string code = "x = -42\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("-42") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — zero split") {
+    std::string code = "x = 0\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("0") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — float split valid Python") {
+    std::string code = "pi = 3.14\nprint(pi)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — float split runs correctly") {
+    std::string code = "pi = 3.14\nprint(pi)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("3.14") != std::string::npos);
+}
+
+TEST_CASE("obf: variablesplitting — negative float split") {
+    std::string code = "x = -2.71\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("-2.71") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Variable splitting — edge cases (scope rules)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: variablesplitting — skips global variables") {
+    std::string code = "def f():\n    global x\n    x = 42\n    print(x)\nf()\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("global x") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips augmented assignment") {
+    std::string code = "x = 10\nx += 5\nprint(x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("x += 5") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips attribute assignment") {
+    std::string code = "class A:\n    pass\na = A()\na.x = 10\nprint(a.x)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("a.x = 10") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips loop variable") {
+    std::string code = "for i in range(10):\n    print(i)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("for i in range(10)") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips walrus operator") {
+    std::string code = "data = [1,2,3]\nif (n := len(data)) > 2:\n    print(n)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("n := len(data)") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips comprehension variable") {
+    std::string code = "result = [x*2 for x in range(10)]\nprint(result)\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("for x in range(10)") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: variablesplitting — skips with-item variable") {
+    std::string code = "with open('/dev/null') as f:\n    pass\nprint('ok')\n";
+    auto result = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("as f") != std::string::npos);
     CHECK(is_valid_python(*result));
 }
 
@@ -300,6 +460,57 @@ TEST_CASE("obf stacking: three techniques (deadcode→scramble→namemangling)")
 }
 
 // ---------------------------------------------------------------------------
+// Stacking: variablesplitting composition
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: variablesplitting → scramble — valid Python") {
+    std::string code = "x = 42\ny = True\nprint(x, y)\n";
+    auto step1 = obfuscate(ObfType::VariableSplitting, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: scramble → variablesplitting — valid Python") {
+    std::string code = "x = 42\ny = True\nprint(x, y)\n";
+    auto step1 = obfuscate(ObfType::ScrambleIdentifiers, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::VariableSplitting, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: deadcode → variablesplitting → scramble — valid Python") {
+    std::string code = "x = 42\nprint(x)\n";
+    auto step1 = obfuscate(ObfType::DeadCode, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::VariableSplitting, *step1);
+    REQUIRE(step2.has_value());
+    auto step3 = obfuscate(ObfType::ScrambleIdentifiers, *step2);
+    REQUIRE(step3.has_value());
+    CHECK(is_valid_python(*step3));
+}
+
+TEST_CASE("obf stacking: literal → variablesplitting — valid Python") {
+    std::string code = "x = 42\ny = 3.14\nprint(x + int(y))\n";
+    auto step1 = obfuscate(ObfType::Literal, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::VariableSplitting, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: namemangling → variablesplitting — valid Python") {
+    std::string code = "def add(a, b):\n    return a + b\nprint(add(2, 3))\n";
+    auto step1 = obfuscate(ObfType::NameMangling, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::VariableSplitting, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+// ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
 
@@ -315,7 +526,7 @@ TEST_CASE("obf: obfuscate with unknown type returns nullopt") {
 // Stress test: all techniques sequential
 // ---------------------------------------------------------------------------
 
-TEST_CASE("obf stacking: all 8 techniques — valid Python") {
+TEST_CASE("obf stacking: all 9 techniques — valid Python") {
     REQUIRE(python3_available());
 
     std::string code =
@@ -331,8 +542,10 @@ TEST_CASE("obf stacking: all 8 techniques — valid Python") {
         "result = process()\n"
         "print(result)\n";
 
-    // All 8 in recommended order: other techniques first, scramble last
+    // All 9 in recommended order: other techniques first, scramble last
     // (scramble must be last to rename all identifiers in the final output)
+    // Order: DeadCode → NameMangling → DocStrip → Literal → StringEncoding
+    //        → XorEncoding → ImportRewrite → VariableSplitting → ScrambleIdentifiers
     std::vector<ObfType> pipeline = {
         ObfType::DeadCode,
         ObfType::NameMangling,
@@ -341,6 +554,7 @@ TEST_CASE("obf stacking: all 8 techniques — valid Python") {
         ObfType::StringEncoding,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
+        ObfType::VariableSplitting,
         ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
@@ -357,7 +571,7 @@ TEST_CASE("obf stacking: all 8 techniques — valid Python") {
     CHECK(is_valid_python(current));
 }
 
-TEST_CASE("obf stacking: all 8 — output is syntactically valid Python") {
+TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
     REQUIRE(python3_available());
 
     std::string code =
@@ -367,7 +581,7 @@ TEST_CASE("obf stacking: all 8 — output is syntactically valid Python") {
         "    return len(files)\n"
         "print(process())\n";
 
-    // All 8 techniques — scramble last to rename identifiers in final output
+    // All 9 techniques — scramble last to rename identifiers in final output
     // Note: runtime may fail due to pre-existing technique interaction bugs
     // (namemangling scope issues, stringencoding __import__ patterns).
     // This test verifies all techniques produce valid Python syntax.
@@ -379,6 +593,7 @@ TEST_CASE("obf stacking: all 8 — output is syntactically valid Python") {
         ObfType::StringEncoding,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
+        ObfType::VariableSplitting,
         ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
