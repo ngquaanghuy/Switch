@@ -97,3 +97,21 @@ target_link_libraries(test_cli_encrypt PRIVATE OpenSSL::Crypto ${SODIUM})
 target_include_directories(test_cli_encrypt PRIVATE ${SODIUM_INCLUDE_DIR})
 
 add_test(NAME test_cli_encrypt COMMAND test_cli_encrypt)
+
+# ---------------------------------------------------------------------------
+# test_scramble (scramble identifiers unit tests)
+# ---------------------------------------------------------------------------
+add_executable(test_scramble
+    test_scramble.cpp
+    ${CMAKE_SOURCE_DIR}/src/scramble.cpp
+)
+
+target_include_directories(test_scramble PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_compile_features(test_scramble PRIVATE cxx_std_17)
+
+add_test(NAME test_scramble COMMAND test_scramble)

@@ -53,6 +53,15 @@ static const std::unordered_set<std::string>& python_builtins() {
         "reversed", "round", "set", "setattr", "slice", "sorted",
         "staticmethod", "str", "sum", "super", "tuple", "type",
         "vars", "zip", "__import__",
+        // Common exception types
+        "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
+        "AttributeError", "ImportError", "FileNotFoundError", "IOError",
+        "OSError", "RuntimeError", "StopIteration", "NotImplementedError",
+        "ZeroDivisionError", "OverflowError", "MemoryError",
+        "RecursionError", "SyntaxError", "IndentationError",
+        "TabError", "NameError", "UnboundLocalError",
+        // Common conventions
+        "self", "cls",
     };
     return bis;
 }
@@ -295,20 +304,19 @@ private:
             } else if (c == '}') {
                 --brace_depth;
             } else if (c == '\\' && i + 1 < src.size()) {
-                i += 2; return; // skip escape
+                i += 1; return; // skip escape (main loop ++i advances to next)
             } else if (c == '\'' || c == '"') {
                 // Nested string inside expression — skip to matching close
                 char nested_delim = c;
                 ++i;
                 while (i < src.size()) {
                     if (src[i] == '\\') { i += 2; continue; }
-                    if (src[i] == nested_delim) break;
+                    if (src[i] == nested_delim) { ++i; break; }
                     ++i;
                 }
-                return; // i already past closing quote
+                return; // i past closing quote; main loop ++i advances to next
             } else if (c == '.' && mod_seen_) {
                 // Dot after a module name inside f-string expression — skip
-                ++i;
                 return;
             } else if (is_id_start(c)) {
                 std::string id = collect_id(src, i);
@@ -323,7 +331,7 @@ private:
                 if (module_names_.count(id) > 0) {
                     mod_seen_ = true;
                 }
-                return; // collect_id already advanced i
+                --i; return; // collect_id advanced i past id; back up so main ++i lands right
             }
         } else {
             // Outside expression in f-string
@@ -512,21 +520,20 @@ private:
             } else if (c == '}') {
                 --brace_depth; out += c;
             } else if (c == '\\' && i + 1 < src.size()) {
-                out += c; out += src[i+1]; i += 2; return;
+                out += c; out += src[i+1]; i += 1; return; // i+1 then main loop ++i
             } else if (c == '\'' || c == '"') {
                 char nested_delim = c;
                 out += c;
                 ++i;
                 while (i < src.size()) {
                     if (src[i] == '\\') { out += src[i]; if (i+1<src.size()) out += src[i+1]; i += 2; continue; }
-                    if (src[i] == nested_delim) { out += src[i]; break; }
+                    if (src[i] == nested_delim) { out += src[i]; ++i; break; }
                     out += src[i]; ++i;
                 }
-                return;
+                return; // i past closing quote; main loop ++i advances to next
             } else if (c == '.' && mod_seen_) {
                 // Dot after a module name inside f-string expression — output as-is
                 out += c;
-                ++i;
                 return;
             } else if (is_id_start(c)) {
                 size_t start = i;
@@ -550,7 +557,7 @@ private:
                 if (module_names_.count(id) > 0) {
                     mod_seen_ = true;
                 }
-                return;
+                --i; return; // collect_id advanced i past id; back up so main ++i lands right
             } else {
                 out += c;
             }
@@ -560,7 +567,7 @@ private:
             } else if (c == delim) {
                 state = State::NORMAL; out += c;
             } else if (c == '\\' && i + 1 < src.size()) {
-                out += c; out += src[i+1]; i += 2; return;
+                out += c; out += src[i+1]; i += 1; return;
             } else {
                 out += c;
             }
