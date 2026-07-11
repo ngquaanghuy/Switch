@@ -114,6 +114,7 @@ private:
     std::unordered_set<std::string> import_names_;  // module names from import statements
     std::unordered_set<std::string> module_names_;   // names that are module objects (for dot-attr)
     bool mod_seen_ = false;                          // previous id was a module object
+    bool str_ended_ = false;                         // string literal just ended (for .method())
     int scope_level_ = 0;
 
     // --- Helpers ---
@@ -188,6 +189,32 @@ private:
                     brace_depth = 0;
                     i += 2; // skip f and opening quote
                     continue;
+                } else if ((c == 'b' || c == 'B') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
+                    // Bytes literal: b"..." or b'...' — skip prefix
+                    mod_seen_ = false;
+                    char delim = src[i+1];
+                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
+                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
+                        i += 4; // skip b + 3 quotes
+                    } else {
+                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
+                        ++i; // skip opening quote
+                    }
+                    continue;
+                } else if ((c == 'r' || c == 'R') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
+                    // Raw string literal: r"..." or r'...' — skip prefix
+                    mod_seen_ = false;
+                    // Note: raw strings don't use escape sequences but state machine
+                    // handles them same way — unescaped backslashes still work for scanning
+                    char delim = src[i+1];
+                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
+                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
+                        i += 4; // skip r + 3 quotes
+                    } else {
+                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
+                        ++i; // skip opening quote
+                    }
+                    continue;
                 } else if (c == '@') {
                     // Decorator — skip @ and the decorator name
                     ++i;
@@ -253,25 +280,25 @@ private:
 
             case State::SINGLE_QUOTE:
                 if (c == '\\' && i + 1 < n) { i += 2; continue; }
-                if (c == '\'') state = State::NORMAL;
+                if (c == '\'') { state = State::NORMAL; mod_seen_ = true; }
                 break;
 
             case State::DOUBLE_QUOTE:
                 if (c == '\\' && i + 1 < n) { i += 2; continue; }
-                if (c == '"') state = State::NORMAL;
+                if (c == '"') { state = State::NORMAL; mod_seen_ = true; }
                 break;
 
             case State::TRIPLE_SINGLE:
                 if (c == '\\' && i + 1 < n) { i += 2; continue; }
                 if (c == '\'' && i + 2 < n && src[i+1] == '\'' && src[i+2] == '\'') {
-                    state = State::NORMAL; i += 3; continue;
+                    state = State::NORMAL; mod_seen_ = true; i += 3; continue;
                 }
                 break;
 
             case State::TRIPLE_DOUBLE:
                 if (c == '\\' && i + 1 < n) { i += 2; continue; }
                 if (c == '"' && i + 2 < n && src[i+1] == '"' && src[i+2] == '"') {
-                    state = State::NORMAL; i += 3; continue;
+                    state = State::NORMAL; mod_seen_ = true; i += 3; continue;
                 }
                 break;
 
@@ -339,7 +366,7 @@ private:
                 brace_depth = 1;
             } else if (c == delim) {
                 // End of f-string
-                state = State::NORMAL;
+                state = State::NORMAL; mod_seen_ = true;
             } else if (c == '\\' && i + 1 < src.size()) {
                 i += 2; return; // skip escape
             }
@@ -387,6 +414,36 @@ private:
                     state = (src[i+1] == '\'') ? State::FSTRING_S : State::FSTRING_D;
                     brace_depth = 0;
                     i += 2;
+                    continue;
+                } else if ((c == 'b' || c == 'B') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
+                    // Bytes literal: b"..." or b'...' — output prefix as-is
+                    mod_seen_ = false;
+                    out += c;
+                    char delim = src[i+1];
+                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
+                        out += std::string(3, delim);
+                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
+                        i += 4;
+                    } else {
+                        out += delim;
+                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
+                        i += 2;
+                    }
+                    continue;
+                } else if ((c == 'r' || c == 'R') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
+                    // Raw string literal: r"..." or r'...' — output prefix as-is
+                    mod_seen_ = false;
+                    out += c;
+                    char delim = src[i+1];
+                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
+                        out += std::string(3, delim);
+                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
+                        i += 4;
+                    } else {
+                        out += delim;
+                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
+                        i += 2;
+                    }
                     continue;
                 } else if (c == '@') {
                     // Decorator: output @ and the decorator name as-is
@@ -462,20 +519,20 @@ private:
 
             case State::SINGLE_QUOTE:
                 if (c == '\\' && i + 1 < n) { out += c; out += src[i+1]; i += 2; continue; }
-                if (c == '\'') state = State::NORMAL;
+                if (c == '\'') { state = State::NORMAL; mod_seen_ = true; }
                 out += c;
                 break;
 
             case State::DOUBLE_QUOTE:
                 if (c == '\\' && i + 1 < n) { out += c; out += src[i+1]; i += 2; continue; }
-                if (c == '"') state = State::NORMAL;
+                if (c == '"') { state = State::NORMAL; mod_seen_ = true; }
                 out += c;
                 break;
 
             case State::TRIPLE_SINGLE:
                 if (c == '\\' && i + 1 < n) { out += c; out += src[i+1]; i += 2; continue; }
                 if (c == '\'' && i + 2 < n && src[i+1] == '\'' && src[i+2] == '\'') {
-                    state = State::NORMAL; out += "'''"; i += 3; continue;
+                    state = State::NORMAL; mod_seen_ = true; out += "'''"; i += 3; continue;
                 }
                 out += c;
                 break;
@@ -483,7 +540,7 @@ private:
             case State::TRIPLE_DOUBLE:
                 if (c == '\\' && i + 1 < n) { out += c; out += src[i+1]; i += 2; continue; }
                 if (c == '"' && i + 2 < n && src[i+1] == '"' && src[i+2] == '"') {
-                    state = State::NORMAL; out += "\"\"\""; i += 3; continue;
+                    state = State::NORMAL; mod_seen_ = true; out += "\"\"\""; i += 3; continue;
                 }
                 out += c;
                 break;
@@ -565,7 +622,7 @@ private:
             if (c == '{') {
                 brace_depth = 1; out += c;
             } else if (c == delim) {
-                state = State::NORMAL; out += c;
+                state = State::NORMAL; mod_seen_ = true; out += c;
             } else if (c == '\\' && i + 1 < src.size()) {
                 out += c; out += src[i+1]; i += 1; return;
             } else {

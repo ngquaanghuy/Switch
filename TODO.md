@@ -215,7 +215,7 @@ NORMAL → SINGLE_QUOTE / DOUBLE_QUOTE / TRIPLE_SINGLE / TRIPLE_DOUBLE
 
 ### Immediate (known bugs):
 - [x] **Module attribute access tracking in scramble:** FIXED — added `module_names_` set + `mod_seen_` flag to track dot-attribute access. `os.listdir()`, `os.path.join()` etc. now preserved. Chain-break reset handles `(`, `)`, operators.
-- [ ] **Scramble + deadcode stacking order matters:** deadcode should run BEFORE scramble (dead code generates valid Python, scramble renames its identifiers). Both orders now produce valid Python output.
+- [x] **Scramble + deadcode stacking order matters:** FIXED — scramble now runs last in pipeline to preserve all module names. deadcode → scramble and scramble → deadcode both produce valid Python. Best order: scramble last.
 
 ### Feature stubs:
 - [ ] `protect` command — not yet implemented
@@ -231,9 +231,9 @@ NORMAL → SINGLE_QUOTE / DOUBLE_QUOTE / TRIPLE_SINGLE / TRIPLE_DOUBLE
 - [ ] **Progress indicators:** show obfuscation progress for large files
 
 ### Testing:
-- [ ] Add scramble-specific unit tests (test_scramble.cpp)
-- [ ] Add obfuscation end-to-end tests (test_obf.cpp)
-- [ ] Test stacking: all 8 techniques combined in various orders
+- [x] Add scramble-specific unit tests (test_scramble.cpp) — 27 tests
+- [x] Add obfuscation end-to-end tests (test_obf.cpp) — 24 tests
+- [x] Test stacking: all 8 techniques combined (syntax validity verified)
 - [ ] Test edge cases: empty files, syntax errors, non-Python files
 
 ### Documentation:
