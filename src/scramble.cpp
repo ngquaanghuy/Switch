@@ -403,6 +403,30 @@ private:
                 ++brace_depth;
             } else if (c == '}') {
                 --brace_depth;
+            } else if (c == ':' && brace_depth == 1) {
+                // Format specifier: {expr:fmt} — skip everything until '}'
+                while (i < src.size() && src[i] != '}') {
+                    if (src[i] == '{') {
+                        // Nested expression in format spec (e.g. {value:{width}})
+                        int nested = 1;
+                        ++i;
+                        while (i < src.size() && nested > 0) {
+                            if (src[i] == '{') ++nested;
+                            else if (src[i] == '}') --nested;
+                            ++i;
+                        }
+                    } else {
+                        ++i;
+                    }
+                }
+                // Don't consume '}' — let the main loop handle it
+                // Back up one so main loop's ++i lands on '}'
+                if (i > 0) --i;
+                return;
+            } else if (c == '!' && brace_depth == 1) {
+                // Conversion flag: {expr!r} or {expr!r:fmt} — skip !r
+                while (i < src.size() && src[i] != ':' && src[i] != '}') ++i;
+                return;
             } else if (c == '\\' && i + 1 < src.size()) {
                 i += 1; return; // skip escape (main loop ++i advances to next)
             } else if (c == '\'' || c == '"') {
@@ -639,6 +663,35 @@ private:
                 ++brace_depth; out += c;
             } else if (c == '}') {
                 --brace_depth; out += c;
+            } else if (c == ':' && brace_depth == 1) {
+                // Format specifier: {expr:fmt} — copy everything until '}'
+                out += c;
+                ++i;
+                while (i < src.size() && src[i] != '}') {
+                    if (src[i] == '{') {
+                        // Nested expression in format spec
+                        int nested = 1;
+                        out += src[i]; ++i;
+                        while (i < src.size() && nested > 0) {
+                            if (src[i] == '{') ++nested;
+                            else if (src[i] == '}') --nested;
+                            out += src[i]; ++i;
+                        }
+                    } else {
+                        out += src[i]; ++i;
+                    }
+                }
+                // Don't consume '}' — let the main loop handle it
+                // Back up one so main loop's ++i lands on '}'
+                if (i > 0) --i;
+                return;
+            } else if (c == '!' && brace_depth == 1) {
+                // Conversion flag: {expr!r} — copy as-is
+                out += c;
+                while (i + 1 < src.size() && src[i+1] != ':' && src[i+1] != '}') {
+                    ++i; out += src[i];
+                }
+                return;
             } else if (c == '\\' && i + 1 < src.size()) {
                 out += c; out += src[i+1]; i += 1; return; // i+1 then main loop ++i
             } else if (c == '\'' || c == '"') {
