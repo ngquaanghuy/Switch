@@ -121,9 +121,6 @@ add_test(NAME test_scramble COMMAND test_scramble)
 # ---------------------------------------------------------------------------
 add_executable(test_obf
     test_obf.cpp
-    ${CMAKE_SOURCE_DIR}/src/cli.cpp
-    ${CMAKE_SOURCE_DIR}/src/encode.cpp
-    ${CMAKE_SOURCE_DIR}/src/encrypt.cpp
     ${CMAKE_SOURCE_DIR}/src/obfuscate.cpp
     ${CMAKE_SOURCE_DIR}/src/scramble.cpp
 )
@@ -135,7 +132,5 @@ target_include_directories(test_obf PRIVATE
 )
 
 target_compile_features(test_obf PRIVATE cxx_std_17)
-target_link_libraries(test_obf PRIVATE OpenSSL::Crypto ${SODIUM})
-target_include_directories(test_obf PRIVATE ${SODIUM_INCLUDE_DIR})
 
 add_test(NAME test_obf COMMAND test_obf WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

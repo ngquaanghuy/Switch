@@ -22,11 +22,13 @@ Python 3.14+ optional (not required for current features). Encrypted output requ
 ctest --test-dir build
 ```
 
-Four test binaries:
+Six test binaries:
 - `build/tests/test_encode` — encoding logic unit tests (doctest, links `encode.cpp`)
 - `build/tests/test_cli_encode` — CLI parsing + encoding e2e (runs output with `python3`)
 - `build/tests/test_encrypt` — encryption unit tests (links `encrypt.cpp`, OpenSSL + libsodium)
 - `build/tests/test_cli_encrypt` — CLI parsing + encryption e2e (runs output with `python3`)
+- `build/tests/test_scramble` — scramble identifier unit tests (pure C++, no crypto deps)
+- `build/tests/test_obf` — obfuscation pipeline stacking e2e (requires `python3`)
 
 Run a single binary: `./build/tests/test_encrypt`
 

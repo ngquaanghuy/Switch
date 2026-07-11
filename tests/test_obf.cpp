@@ -1,69 +1,10 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "switch/obfuscate.hpp"
+#include "test_helpers.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <fstream>
 #include <string>
 #include <vector>
-#include <array>
-#include <algorithm>
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-static bool python3_available() {
-    return system("python3 -c '' >/dev/null 2>&1") == 0;
-}
-
-static std::string create_temp_file(const std::string& content) {
-    std::string path = "/tmp/switch_obf_test_" + std::to_string(std::rand()) + ".py";
-    std::ofstream out(path, std::ios::binary);
-    out.write(content.data(), static_cast<std::streamsize>(content.size()));
-    out.close();
-    return path;
-}
-
-static std::string read_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in) return {};
-    std::streamsize size = in.tellg();
-    in.seekg(0);
-    std::string content(static_cast<size_t>(size), '\0');
-    in.read(content.data(), size);
-    return content;
-}
-
-static bool is_valid_python(const std::string& code) {
-    std::string path = "/tmp/switch_obf_valid_" + std::to_string(std::rand()) + ".py";
-    std::ofstream out(path, std::ios::binary);
-    out.write(code.data(), static_cast<std::streamsize>(code.size()));
-    out.close();
-    std::string cmd = "python3 -c \"compile(open('" + path + "').read(), '" + path + "', 'exec')\" 2>&1";
-    int rc = system(cmd.c_str());
-    std::remove(path.c_str());
-    return rc == 0;
-}
-
-static int run_python(const std::string& code, std::string& output) {
-    std::string path = create_temp_file(code);
-    std::string cmd = "python3 " + path + " 2>&1";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) { std::remove(path.c_str()); return -1; }
-    char buf[4096];
-    output.clear();
-    while (fgets(buf, sizeof(buf), pipe)) output += buf;
-    int rc = pclose(pipe);
-    std::remove(path.c_str());
-#ifdef _WIN32
-    return rc;
-#else
-    return WEXITSTATUS(rc);
-#endif
-}
 
 // Sample Python code for testing
 static const std::string SAMPLE_CODE =
@@ -261,105 +202,81 @@ TEST_CASE("obf stacking: deadcode → scramble — os.listdir preserved") {
 // Stacking: multiple techniques
 // ---------------------------------------------------------------------------
 
-TEST_CASE("obf stacking: docstrip → scramble — valid Python") {
+TEST_CASE("obf stacking: each technique → scramble — valid Python") {
     REQUIRE(python3_available());
 
-    std::string code =
-        "# This is a comment\n"
-        "def add(a, b):\n"
-        "    \"\"\"Add two numbers.\"\"\"\n"
-        "    return a + b\n"
-        "print(add(2, 3))\n";
-
-    auto step1 = obfuscate(ObfType::DocStrip, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
-}
-
-TEST_CASE("obf stacking: literal → scramble — valid Python") {
-    REQUIRE(python3_available());
-
-    std::string code =
-        "x = 42\n"
-        "y = 3.14\n"
-        "z = True\n"
-        "print(x + int(y))\n";
-
-    auto step1 = obfuscate(ObfType::Literal, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
-}
-
-TEST_CASE("obf stacking: namemangling → scramble — valid Python") {
-    REQUIRE(python3_available());
-
-    std::string code =
-        "def calculate_sum(a, b):\n"
-        "    total = a + b\n"
-        "    return total\n"
-        "result = calculate_sum(10, 20)\n"
-        "print(result)\n";
-
-    auto step1 = obfuscate(ObfType::NameMangling, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
-}
-
-TEST_CASE("obf stacking: stringencoding → scramble — valid Python") {
-    REQUIRE(python3_available());
-
-    std::string code =
-        "name = 'hello'\n"
-        "greeting = 'world'\n"
-        "print(name + ' ' + greeting)\n";
-
-    auto step1 = obfuscate(ObfType::StringEncoding, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
-}
-
-TEST_CASE("obf stacking: xorencoding → scramble — valid Python") {
-    REQUIRE(python3_available());
-
-    std::string code =
-        "secret = 'password123'\n"
-        "print(secret)\n";
-
-    auto step1 = obfuscate(ObfType::XorEncoding, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
-}
-
-TEST_CASE("obf stacking: importrewrite → scramble — valid Python") {
-    REQUIRE(python3_available());
-
-    std::string code =
-        "import os\n"
-        "import json\n"
-        "files = os.listdir('/tmp')\n"
-        "print(len(files))\n";
-
-    auto step1 = obfuscate(ObfType::ImportRewrite, code);
-    REQUIRE(step1.has_value());
-    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
-    REQUIRE(step2.has_value());
-
-    CHECK(is_valid_python(*step2));
+    // Each subcase: one technique followed by scramble
+    SUBCASE("docstrip → scramble") {
+        std::string code =
+            "# This is a comment\n"
+            "def add(a, b):\n"
+            "    \"\"\"Add two numbers.\"\"\"\n"
+            "    return a + b\n"
+            "print(add(2, 3))\n";
+        auto step1 = obfuscate(ObfType::DocStrip, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
+    SUBCASE("literal → scramble") {
+        std::string code =
+            "x = 42\n"
+            "y = 3.14\n"
+            "z = True\n"
+            "print(x + int(y))\n";
+        auto step1 = obfuscate(ObfType::Literal, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
+    SUBCASE("namemangling → scramble") {
+        std::string code =
+            "def calculate_sum(a, b):\n"
+            "    total = a + b\n"
+            "    return total\n"
+            "result = calculate_sum(10, 20)\n"
+            "print(result)\n";
+        auto step1 = obfuscate(ObfType::NameMangling, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
+    SUBCASE("stringencoding → scramble") {
+        std::string code =
+            "name = 'hello'\n"
+            "greeting = 'world'\n"
+            "print(name + ' ' + greeting)\n";
+        auto step1 = obfuscate(ObfType::StringEncoding, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
+    SUBCASE("xorencoding → scramble") {
+        std::string code =
+            "secret = 'password123'\n"
+            "print(secret)\n";
+        auto step1 = obfuscate(ObfType::XorEncoding, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
+    SUBCASE("importrewrite → scramble") {
+        std::string code =
+            "import os\n"
+            "import json\n"
+            "files = os.listdir('/tmp')\n"
+            "print(len(files))\n";
+        auto step1 = obfuscate(ObfType::ImportRewrite, code);
+        REQUIRE(step1.has_value());
+        auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+        REQUIRE(step2.has_value());
+        CHECK(is_valid_python(*step2));
+    }
 }
 
 TEST_CASE("obf stacking: three techniques (deadcode→scramble→namemangling)") {
@@ -414,9 +331,9 @@ TEST_CASE("obf stacking: all 8 techniques — valid Python") {
         "result = process()\n"
         "print(result)\n";
 
-    // All 8 in recommended order: scramble first, then other techniques
+    // All 8 in recommended order: other techniques first, scramble last
+    // (scramble must be last to rename all identifiers in the final output)
     std::vector<ObfType> pipeline = {
-        ObfType::ScrambleIdentifiers,  // first — scrambles identifiers
         ObfType::DeadCode,
         ObfType::NameMangling,
         ObfType::DocStrip,
@@ -424,6 +341,7 @@ TEST_CASE("obf stacking: all 8 techniques — valid Python") {
         ObfType::StringEncoding,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
+        ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
     std::string current = code;
@@ -449,13 +367,11 @@ TEST_CASE("obf stacking: all 8 — output is syntactically valid Python") {
         "    return len(files)\n"
         "print(process())\n";
 
-    // All 8 techniques — scramble first to scramble identifiers before
-    // other techniques encode/transform the output
+    // All 8 techniques — scramble last to rename identifiers in final output
     // Note: runtime may fail due to pre-existing technique interaction bugs
     // (namemangling scope issues, stringencoding __import__ patterns).
     // This test verifies all techniques produce valid Python syntax.
     std::vector<ObfType> pipeline = {
-        ObfType::ScrambleIdentifiers,
         ObfType::DeadCode,
         ObfType::NameMangling,
         ObfType::DocStrip,
@@ -463,6 +379,7 @@ TEST_CASE("obf stacking: all 8 — output is syntactically valid Python") {
         ObfType::StringEncoding,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
+        ObfType::ScrambleIdentifiers,  // last — scrambles all identifiers
     };
 
     std::string current = code;

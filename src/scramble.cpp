@@ -113,8 +113,12 @@ private:
     std::unordered_map<std::string, std::string> map_;
     std::unordered_set<std::string> import_names_;  // module names from import statements
     std::unordered_set<std::string> module_names_;   // names that are module objects (for dot-attr)
-    bool mod_seen_ = false;                          // previous id was a module object
-    bool str_ended_ = false;                         // string literal just ended (for .method())
+    // Tracks two related states via one flag:
+    // 1. Previous identifier was a module name (for os.path.join preservation)
+    // 2. A string literal just ended (for "str".method() preservation)
+    // Both suppress scrambling of the next dot-attribute, which is correct behavior
+    // for both cases — module attributes and string methods must not be renamed.
+    bool mod_seen_ = false;
     int scope_level_ = 0;
 
     // --- Helpers ---
@@ -155,6 +159,43 @@ private:
         return src.substr(start, i - start);
     }
 
+    // --- String prefix detection ---
+
+    // Detect Python string prefixes: f, b, r, rb, br, rf, fr, u
+    // Returns prefix length (0 if not a string prefix, 1 for single-char, 2 for two-char)
+    // Requires src[i+prefix_len] to be a quote character.
+    static int detect_string_prefix(const std::string& src, size_t i) {
+        size_t n = src.size();
+        if (i >= n) return 0;
+        char c1 = src[i];
+        // Two-letter prefixes: rb, br, rf, fr (case-insensitive)
+        if (i + 2 < n) {
+            char c2 = src[i+1];
+            char c3 = src[i+2];
+            bool c2_is_quote = (c2 == '\'' || c2 == '"');
+            bool c3_is_quote = (c3 == '\'' || c3 == '"');
+            // Two-letter prefix only when c2 is NOT a quote (otherwise it's single-letter like r"")
+            if (!c2_is_quote) {
+                char lo1 = static_cast<char>(std::tolower(static_cast<unsigned char>(c1)));
+                char lo2 = static_cast<char>(std::tolower(static_cast<unsigned char>(c2)));
+                if ((lo1 == 'r' && (lo2 == 'b' || lo2 == 'f')) ||
+                    (lo1 == 'b' && lo2 == 'r') ||
+                    (lo1 == 'f' && lo2 == 'r')) {
+                    if (c3_is_quote) return 2;
+                }
+            }
+        }
+        // Single-letter prefixes: f, b, r, u
+        if (i + 1 < n) {
+            char lo = static_cast<char>(std::tolower(static_cast<unsigned char>(c1)));
+            if ((lo == 'f' || lo == 'b' || lo == 'r' || lo == 'u') &&
+                (src[i+1] == '\'' || src[i+1] == '"')) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     // --- Pass 1: Collect identifiers ---
 
     void collect(const std::string& src) {
@@ -183,44 +224,32 @@ private:
                     state = State::SINGLE_QUOTE;
                 } else if (c == '"') {
                     state = State::DOUBLE_QUOTE;
-                } else if ((c == 'f' || c == 'F') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    // f-string: f"..." or f'...'
-                    state = (src[i+1] == '\'') ? State::FSTRING_S : State::FSTRING_D;
-                    brace_depth = 0;
-                    i += 2; // skip f and opening quote
-                    continue;
-                } else if ((c == 'b' || c == 'B') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    // Bytes literal: b"..." or b'...' — skip prefix
+                } else if (int plen = detect_string_prefix(src, i)) {
+                    // String prefix: f, b, r, rb, br, rf, fr, u followed by quote
+                    char prefix_char = static_cast<char>(std::tolower(static_cast<unsigned char>(src[i])));
                     mod_seen_ = false;
-                    char delim = src[i+1];
-                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
-                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
-                        i += 4; // skip b + 3 quotes
+                    char delim = src[i + plen];
+                    if (prefix_char == 'f') {
+                        // f-string: enter special state for expression handling
+                        state = (delim == '\'') ? State::FSTRING_S : State::FSTRING_D;
+                        brace_depth = 0;
                     } else {
+                        // b, r, rb, br, rf, fr, u — skip prefix, enter string state
                         state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
-                        ++i; // skip opening quote
                     }
-                    continue;
-                } else if ((c == 'r' || c == 'R') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    // Raw string literal: r"..." or r'...' — skip prefix
-                    mod_seen_ = false;
-                    // Note: raw strings don't use escape sequences but state machine
-                    // handles them same way — unescaped backslashes still work for scanning
-                    char delim = src[i+1];
-                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
-                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
-                        i += 4; // skip r + 3 quotes
-                    } else {
-                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
-                        ++i; // skip opening quote
-                    }
+                    i += plen + 1; // skip prefix chars + opening quote
                     continue;
                 } else if (c == '@') {
-                    // Decorator — skip @ and the decorator name
+                    // Decorator — skip @ and the full decorator name (including dotted: @app.route)
                     ++i;
                     while (i < n && (src[i] == ' ' || src[i] == '\t')) ++i;
                     if (i < n && is_id_start(src[i])) {
                         while (i < n && is_id_char(src[i])) ++i;
+                        // Handle dotted decorators: @os.path.join, @app.route
+                        while (i < n && src[i] == '.') {
+                            ++i;  // skip dot
+                            while (i < n && is_id_char(src[i])) ++i;
+                        }
                     }
                     continue;
                 } else if (c == '.' && mod_seen_) {
@@ -384,6 +413,9 @@ private:
         size_t i = 0;
         const size_t n = src.size();
 
+        // Reset mod_seen_ from collect() pass — state doesn't carry over
+        mod_seen_ = false;
+
         while (i < n) {
             char c = src[i];
             // Reset mod_seen_ when chain breaks (non-dot, non-id char)
@@ -408,45 +440,25 @@ private:
                 } else if (c == '"') {
                     state = State::DOUBLE_QUOTE;
                     out += c;
-                } else if ((c == 'f' || c == 'F') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    out += c;
-                    out += src[i+1];
-                    state = (src[i+1] == '\'') ? State::FSTRING_S : State::FSTRING_D;
-                    brace_depth = 0;
-                    i += 2;
-                    continue;
-                } else if ((c == 'b' || c == 'B') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    // Bytes literal: b"..." or b'...' — output prefix as-is
+                } else if (int plen = detect_string_prefix(src, i)) {
+                    // String prefix: f, b, r, rb, br, rf, fr, u followed by quote
+                    char prefix_char = static_cast<char>(std::tolower(static_cast<unsigned char>(src[i])));
                     mod_seen_ = false;
-                    out += c;
-                    char delim = src[i+1];
-                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
-                        out += std::string(3, delim);
-                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
-                        i += 4;
+                    // Output entire prefix as-is
+                    out += src.substr(i, static_cast<size_t>(plen));
+                    char delim = src[i + plen];
+                    out += delim;
+                    if (prefix_char == 'f') {
+                        // f-string: enter special state for expression handling
+                        state = (delim == '\'') ? State::FSTRING_S : State::FSTRING_D;
+                        brace_depth = 0;
                     } else {
-                        out += delim;
                         state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
-                        i += 2;
                     }
-                    continue;
-                } else if ((c == 'r' || c == 'R') && i + 1 < n && (src[i+1] == '\'' || src[i+1] == '"')) {
-                    // Raw string literal: r"..." or r'...' — output prefix as-is
-                    mod_seen_ = false;
-                    out += c;
-                    char delim = src[i+1];
-                    if (i + 3 < n && src[i+2] == delim && src[i+3] == delim) {
-                        out += std::string(3, delim);
-                        state = (delim == '\'') ? State::TRIPLE_SINGLE : State::TRIPLE_DOUBLE;
-                        i += 4;
-                    } else {
-                        out += delim;
-                        state = (delim == '\'') ? State::SINGLE_QUOTE : State::DOUBLE_QUOTE;
-                        i += 2;
-                    }
+                    i += plen + 1; // skip prefix chars + opening quote
                     continue;
                 } else if (c == '@') {
-                    // Decorator: output @ and the decorator name as-is
+                    // Decorator: output @ and the full decorator name (including dotted: @app.route)
                     out += c;
                     ++i;
                     while (i < n && (src[i] == ' ' || src[i] == '\t')) { out += src[i]; ++i; }
@@ -454,6 +466,13 @@ private:
                         size_t start = i;
                         while (i < n && is_id_char(src[i])) ++i;
                         out += src.substr(start, i - start);
+                        // Handle dotted decorators: @os.path.join, @app.route
+                        while (i < n && src[i] == '.') {
+                            size_t dot_start = i;
+                            ++i;  // skip dot
+                            while (i < n && is_id_char(src[i])) ++i;
+                            out += src.substr(dot_start, i - dot_start);
+                        }
                     }
                     continue;
                 } else if (c == '.' && mod_seen_) {

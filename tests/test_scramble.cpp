@@ -1,49 +1,11 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "switch/scramble.hpp"
+#include "test_helpers.h"
 
 #include <string>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
 
 using namespace switch_scramble;
-
-// Helper: create a temp file, run with python3, return exit code + output
-static int run_python(const std::string& code, std::string& output) {
-    std::string path = "/tmp/switch_scramble_test_" + std::to_string(std::rand()) + ".py";
-    std::ofstream out(path, std::ios::binary);
-    out.write(code.data(), static_cast<std::streamsize>(code.size()));
-    out.close();
-
-    std::string cmd = "python3 " + path + " 2>&1";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) { std::remove(path.c_str()); return -1; }
-
-    char buf[4096];
-    output.clear();
-    while (fgets(buf, sizeof(buf), pipe)) output += buf;
-    int rc = pclose(pipe);
-    std::remove(path.c_str());
-#ifdef _WIN32
-    return rc;
-#else
-    return WEXITSTATUS(rc);
-#endif
-}
-
-// Helper: check if code is syntactically valid Python
-static bool is_valid_python(const std::string& code) {
-    std::string path = "/tmp/switch_scramble_valid_" + std::to_string(std::rand()) + ".py";
-    std::ofstream out(path, std::ios::binary);
-    out.write(code.data(), static_cast<std::streamsize>(code.size()));
-    out.close();
-
-    std::string cmd = "python3 -c \"compile(open('" + path + "').read(), '" + path + "', 'exec')\" 2>&1";
-    int rc = system(cmd.c_str());
-    std::remove(path.c_str());
-    return rc == 0;
-}
 
 // =========================================================================
 // Edge cases
@@ -213,6 +175,20 @@ TEST_CASE("scramble: decorators preserved") {
     std::string result = scramble_identifiers(src);
     CHECK(result.find("@property") != std::string::npos);
     CHECK(result.find("def") != std::string::npos);
+}
+
+TEST_CASE("scramble: dotted decorators preserved") {
+    std::string src = "@app.route(\"/\")\ndef index():\n    pass\n";
+    std::string result = scramble_identifiers(src);
+    CHECK(result.find("@app.route") != std::string::npos);
+    CHECK(is_valid_python(result));
+}
+
+TEST_CASE("scramble: deeply dotted decorators preserved") {
+    std::string src = "@framework.web.handler\nasync def handle():\n    pass\n";
+    std::string result = scramble_identifiers(src);
+    CHECK(result.find("@framework.web.handler") != std::string::npos);
+    CHECK(is_valid_python(result));
 }
 
 // =========================================================================

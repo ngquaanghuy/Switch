@@ -2,45 +2,9 @@
 #include "doctest.h"
 #include "switch/cli.hpp"
 #include "switch/encrypt.hpp"
+#include "test_helpers.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
 #include <string>
-#include <vector>
-
-#ifdef _WIN32
-// On Windows, _pclose() returns the exit code directly (no wait-status encoding).
-#define WEXITSTATUS(s) (s)
-#else
-#include <sys/wait.h>
-#endif
-
-// Helper: create a temp file with content, returns path
-static std::string create_temp_file(const std::string& content) {
-    std::string path = "/tmp/switch_test_enc_" + std::to_string(std::rand()) + ".tmp";
-    std::ofstream out(path, std::ios::binary);
-    out.write(content.data(), static_cast<std::streamsize>(content.size()));
-    out.close();
-    return path;
-}
-
-// Helper: read file content
-static std::string read_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in) return {};
-    std::streamsize size = in.tellg();
-    in.seekg(0);
-    std::string content(static_cast<size_t>(size), '\0');
-    in.read(content.data(), size);
-    return content;
-}
-
-// F08: RAII guard — removes file(s) on scope exit, even on test failure
-struct TempFileGuard {
-    std::vector<std::string> paths;
-    ~TempFileGuard() { for (auto& p : paths) std::remove(p.c_str()); }
-};
 
 static const char* AES256_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
