@@ -33,6 +33,31 @@ int main(int argc, const char* argv[]) {
         return 1; // parse error, message already printed
     }
 
+    // Auto-sort obfuscation techniques in the correct order.
+    // scramble MUST run before xorencoding and importrewrite (those generate
+    // code with identifiers that scramble would corrupt).
+    // importrewrite MUST run last among import-related techniques.
+    if (!args->obf_types.empty()) {
+        auto& v = args->obf_types;
+        std::stable_sort(v.begin(), v.end(), [](switch_obf::ObfType a, switch_obf::ObfType b) {
+            auto order = [](switch_obf::ObfType t) -> int {
+                switch (t) {
+                case switch_obf::ObfType::DeadCode:            return 10;
+                case switch_obf::ObfType::NameMangling:        return 20;
+                case switch_obf::ObfType::DocStrip:            return 30;
+                case switch_obf::ObfType::Literal:             return 40;
+                case switch_obf::ObfType::StringEncoding:      return 50;
+                case switch_obf::ObfType::ScrambleIdentifiers: return 60;
+                case switch_obf::ObfType::XorEncoding:         return 70;
+                case switch_obf::ObfType::VariableSplitting:   return 80;
+                case switch_obf::ObfType::ImportRewrite:       return 90;
+                }
+                return 50;
+            };
+            return order(a) < order(b);
+        });
+    }
+
     // Handle --obf-list (independent of command)
     if (args->obf_list) {
         std::cout << "Supported obfuscation techniques:\n"
