@@ -19,6 +19,7 @@ enum class ObfType {
     ScrambleIdentifiers, // Scramble identifiers with confusable chars (C++ inline)
     VariableSplitting, // Split bool/int/float into sub-variables (Python AST)
     OpaquePredicates,  // Inject known-True/False branches (Python AST)
+    ControlFlowFlattening, // Flatten function bodies into while+match/case dispatcher
 };
 
 // Parse an obfuscation technique name (case-insensitive).

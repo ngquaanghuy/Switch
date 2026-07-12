@@ -723,3 +723,98 @@ TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
 
     CHECK(is_valid_python(current));
 }
+
+// ---------------------------------------------------------------------------
+// Control flow flattening
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: controlflowflattening — parse and type name") {
+    CHECK(parse_obf_type("controlflowflattening") == ObfType::ControlFlowFlattening);
+    CHECK(parse_obf_type("ControlFlowFlattening") == ObfType::ControlFlowFlattening);
+    CHECK(parse_obf_type("CONTROLFLOWFLATTENING") == ObfType::ControlFlowFlattening);
+    CHECK(obf_type_name(ObfType::ControlFlowFlattening) == "controlflowflattening");
+    CHECK(all_obf_names().find("controlflowflattening") != std::string::npos);
+}
+
+TEST_CASE("obf: controlflowflattening — simple function unchanged") {
+    std::string code = "def add(a, b):\n    return a + b\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("return a + b") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: controlflowflattening — if/else produces match/case") {
+    std::string code =
+        "def check(x):\n"
+        "    if x > 10:\n"
+        "        print('big')\n"
+        "    else:\n"
+        "        print('small')\n"
+        "    return True\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("while") != std::string::npos);
+    CHECK(result->find("match") != std::string::npos);
+    CHECK(result->find("case") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: controlflowflattening — for loop uses iter/next") {
+    std::string code =
+        "def sum_pos(items):\n"
+        "    total = 0\n"
+        "    for x in items:\n"
+        "        if x > 0:\n"
+        "            total += x\n"
+        "    return total\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("iter") != std::string::npos);
+    CHECK(result->find("next") != std::string::npos);
+    CHECK(result->find("StopIteration") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: controlflowflattening — while loop flattened") {
+    std::string code =
+        "def countdown(n):\n"
+        "    result = []\n"
+        "    while n > 0:\n"
+        "        result.append(n)\n"
+        "        n -= 1\n"
+        "    return result\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("while") != std::string::npos);
+    CHECK(result->find("match") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: controlflowflattening — try/except flattened") {
+    std::string code =
+        "def safe_div(a, b):\n"
+        "    try:\n"
+        "        result = a / b\n"
+        "    except ZeroDivisionError:\n"
+        "        result = None\n"
+        "    return result\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("while") != std::string::npos);
+    CHECK(result->find("try") != std::string::npos);
+    CHECK(result->find("except") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: controlflowflattening — nested func/class preserved") {
+    std::string code =
+        "def outer(x):\n"
+        "    def inner(y):\n"
+        "        return y + 1\n"
+        "    return inner(x)\n";
+    auto result = obfuscate(ObfType::ControlFlowFlattening, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def inner") != std::string::npos);
+    CHECK(is_valid_python(*result));
+}

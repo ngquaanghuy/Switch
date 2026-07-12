@@ -51,6 +51,7 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
     if (ieq(name, "scramble")) return ObfType::ScrambleIdentifiers;
     if (ieq(name, "variablesplitting")) return ObfType::VariableSplitting;
     if (ieq(name, "opaquepredicates")) return ObfType::OpaquePredicates;
+    if (ieq(name, "controlflowflattening")) return ObfType::ControlFlowFlattening;
     return std::nullopt;
 }
 
@@ -66,12 +67,13 @@ std::string_view obf_type_name(ObfType type) {
     case ObfType::ScrambleIdentifiers: return "scramble";
     case ObfType::VariableSplitting: return "variablesplitting";
     case ObfType::OpaquePredicates: return "opaquepredicates";
+    case ObfType::ControlFlowFlattening: return "controlflowflattening";
     }
     return "unknown";
 }
 
 std::string all_obf_names() {
-    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble, variablesplitting, opaquepredicates";
+    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble, variablesplitting, opaquepredicates, controlflowflattening";
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     case ObfType::DeadCode: script_name = "obf_deadcode.py"; break;
     case ObfType::VariableSplitting: script_name = "obf_varsplit.py"; break;
     case ObfType::OpaquePredicates: script_name = "obf_opaque.py"; break;
+    case ObfType::ControlFlowFlattening: script_name = "obf_cff.py"; break;
     }
 
     std::string script_path = find_script_path(script_name);

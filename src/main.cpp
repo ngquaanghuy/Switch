@@ -52,6 +52,7 @@ int main(int argc, const char* argv[]) {
                 case switch_obf::ObfType::XorEncoding:         return 70;
                 case switch_obf::ObfType::VariableSplitting:   return 80;
                 case switch_obf::ObfType::ImportRewrite:       return 90;
+                case switch_obf::ObfType::ControlFlowFlattening: return 95;
                 }
                 return 50;
             };
