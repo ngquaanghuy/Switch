@@ -43,6 +43,7 @@ TEST_CASE("obf: parse_obf_type valid names") {
     CHECK(parse_obf_type("deadcode") == ObfType::DeadCode);
     CHECK(parse_obf_type("scramble") == ObfType::ScrambleIdentifiers);
     CHECK(parse_obf_type("variablesplitting") == ObfType::VariableSplitting);
+    CHECK(parse_obf_type("opaquepredicates") == ObfType::OpaquePredicates);
 }
 
 TEST_CASE("obf: parse_obf_type case-insensitive") {
@@ -52,6 +53,8 @@ TEST_CASE("obf: parse_obf_type case-insensitive") {
     CHECK(parse_obf_type("lItErAl") == ObfType::Literal);
     CHECK(parse_obf_type("VariableSplitting") == ObfType::VariableSplitting);
     CHECK(parse_obf_type("VARIABLESPLITTING") == ObfType::VariableSplitting);
+    CHECK(parse_obf_type("OpaquePredicates") == ObfType::OpaquePredicates);
+    CHECK(parse_obf_type("OPAQUEPREDICATES") == ObfType::OpaquePredicates);
 }
 
 TEST_CASE("obf: parse_obf_type unknown returns nullopt") {
@@ -70,6 +73,7 @@ TEST_CASE("obf: obf_type_name returns canonical name") {
     CHECK(obf_type_name(ObfType::XorEncoding) == "xorencoding");
     CHECK(obf_type_name(ObfType::ImportRewrite) == "importrewrite");
     CHECK(obf_type_name(ObfType::VariableSplitting) == "variablesplitting");
+    CHECK(obf_type_name(ObfType::OpaquePredicates) == "opaquepredicates");
 }
 
 TEST_CASE("obf: all_obf_names contains all nine") {
@@ -83,6 +87,7 @@ TEST_CASE("obf: all_obf_names contains all nine") {
     CHECK(names.find("deadcode") != std::string::npos);
     CHECK(names.find("scramble") != std::string::npos);
     CHECK(names.find("variablesplitting") != std::string::npos);
+    CHECK(names.find("opaquepredicates") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +288,113 @@ TEST_CASE("obf: variablesplitting — skips with-item variable") {
     REQUIRE(result.has_value());
     CHECK(result->find("as f") != std::string::npos);
     CHECK(is_valid_python(*result));
+}
+
+// ---------------------------------------------------------------------------
+// Opaque predicates
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: opaquepredicates — injects into if statement") {
+    std::string code = "x = 42\nif x > 0:\n    print('positive')\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: opaquepredicates — output runs correctly") {
+    std::string code = "x = 42\nif x > 0:\n    print('positive')\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("positive") != std::string::npos);
+}
+
+TEST_CASE("obf: opaquepredicates — injects into while loop") {
+    std::string code = "i = 0\nwhile i < 5:\n    i += 1\nprint(i)\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: opaquepredicates — while loop runs correctly") {
+    std::string code = "i = 0\nwhile i < 5:\n    i += 1\nprint(i)\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("5") != std::string::npos);
+}
+
+TEST_CASE("obf: opaquepredicates — injects into for loop") {
+    std::string code = "for i in range(5):\n    pass\nprint('done')\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: opaquepredicates — for loop runs correctly") {
+    std::string code = "for i in range(5):\n    pass\nprint('done')\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("done") != std::string::npos);
+}
+
+TEST_CASE("obf: opaquepredicates — skips __name__ check") {
+    std::string code = "if __name__ == '__main__':\n    print('main')\n";
+    auto result = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(result.has_value());
+    CHECK(is_valid_python(*result));
+}
+
+// ---------------------------------------------------------------------------
+// Stacking: opaquepredicates composition
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: opaquepredicates → scramble — valid Python") {
+    std::string code = "x = 42\nif x > 0:\n    print(x)\n";
+    auto step1 = obfuscate(ObfType::OpaquePredicates, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: scramble → opaquepredicates — valid Python") {
+    std::string code = "x = 42\nif x > 0:\n    print(x)\n";
+    auto step1 = obfuscate(ObfType::ScrambleIdentifiers, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::OpaquePredicates, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: deadcode → opaquepredicates → scramble — valid Python") {
+    std::string code = "x = 42\nif x > 0:\n    print(x)\n";
+    auto step1 = obfuscate(ObfType::DeadCode, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::OpaquePredicates, *step1);
+    REQUIRE(step2.has_value());
+    auto step3 = obfuscate(ObfType::ScrambleIdentifiers, *step2);
+    REQUIRE(step3.has_value());
+    CHECK(is_valid_python(*step3));
+}
+
+TEST_CASE("obf stacking: opaquepredicates runs correctly after scramble") {
+    std::string code = "x = 42\nif x > 0:\n    print('yes')\nelse:\n    print('no')\n";
+    auto step1 = obfuscate(ObfType::ScrambleIdentifiers, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::OpaquePredicates, *step1);
+    REQUIRE(step2.has_value());
+    std::string output;
+    int rc = run_python(*step2, output);
+    CHECK(rc == 0);
+    CHECK(output.find("yes") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +638,7 @@ TEST_CASE("obf: obfuscate with unknown type returns nullopt") {
 // Stress test: all techniques sequential
 // ---------------------------------------------------------------------------
 
-TEST_CASE("obf stacking: all 9 techniques — valid Python") {
+TEST_CASE("obf stacking: all 10 techniques — valid Python") {
     REQUIRE(python3_available());
 
     std::string code =
@@ -542,18 +654,20 @@ TEST_CASE("obf stacking: all 9 techniques — valid Python") {
         "result = process()\n"
         "print(result)\n";
 
-    // All 9 in recommended order:
+    // All 10 in recommended order:
     // scramble MUST run before xorencoding and importrewrite
-    // (those generate code with identifiers that scramble would corrupt)
+    // opaquepredicates AFTER scramble, BEFORE xorencoding
     // Order: DeadCode → NameMangling → DocStrip → Literal → StringEncoding
-    //        → ScrambleIdentifiers → XorEncoding → ImportRewrite → VariableSplitting
+    //        → ScrambleIdentifiers → OpaquePredicates → XorEncoding
+    //        → ImportRewrite → VariableSplitting
     std::vector<ObfType> pipeline = {
         ObfType::DeadCode,
         ObfType::NameMangling,
         ObfType::DocStrip,
         ObfType::Literal,
         ObfType::StringEncoding,
-        ObfType::ScrambleIdentifiers,  // MUST be before xorencoding/importrewrite
+        ObfType::ScrambleIdentifiers,
+        ObfType::OpaquePredicates,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
         ObfType::VariableSplitting,
@@ -582,7 +696,8 @@ TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
         "    return len(files)\n"
         "print(process())\n";
 
-    // All 9 techniques — scramble MUST run before xorencoding/importrewrite
+    // All 10 techniques — scramble MUST run before xorencoding/importrewrite
+    // opaquepredicates AFTER scramble, BEFORE xorencoding
     // Note: runtime may fail due to pre-existing technique interaction bugs
     // (namemangling scope issues, stringencoding __import__ patterns).
     // This test verifies all techniques produce valid Python syntax.
@@ -592,7 +707,8 @@ TEST_CASE("obf stacking: all 9 — output is syntactically valid Python") {
         ObfType::DocStrip,
         ObfType::Literal,
         ObfType::StringEncoding,
-        ObfType::ScrambleIdentifiers,  // MUST be before xorencoding/importrewrite
+        ObfType::ScrambleIdentifiers,
+        ObfType::OpaquePredicates,
         ObfType::XorEncoding,
         ObfType::ImportRewrite,
         ObfType::VariableSplitting,

@@ -18,6 +18,7 @@ enum class ObfType {
     DeadCode,       // Inject dense dead code (functions, classes, opaque predicates)
     ScrambleIdentifiers, // Scramble identifiers with confusable chars (C++ inline)
     VariableSplitting, // Split bool/int/float into sub-variables (Python AST)
+    OpaquePredicates,  // Inject known-True/False branches (Python AST)
 };
 
 // Parse an obfuscation technique name (case-insensitive).
