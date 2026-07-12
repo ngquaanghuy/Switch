@@ -64,7 +64,7 @@ def _replace_returns(stmts):
 
 
 def _replace_break_continue(stmts, loop_stack):
-    """Replace Break/Continue with state variable assignments. Recurses into If."""
+    """Replace Break/Continue with state variable assignments. Recurses into If/For/While."""
     result = []
     for s in stmts:
         if isinstance(s, ast.Break) and loop_stack:
@@ -77,6 +77,9 @@ def _replace_break_continue(stmts, loop_stack):
             s.body = _replace_break_continue(s.body, loop_stack)
             if s.orelse:
                 s.orelse = _replace_break_continue(s.orelse, loop_stack)
+            result.append(s)
+        elif isinstance(s, (ast.For, ast.While)):
+            s.body = _replace_break_continue(s.body, loop_stack)
             result.append(s)
         else:
             result.append(s)
@@ -137,6 +140,16 @@ class FunctionFlattener(ast.NodeTransformer):
         has_compound = any(self._is_compound(s) for s in stmts)
 
         if not has_compound:
+            # Don't append next_state if last stmt already transitions
+            # (e.g., break/continue replacement already set _s)
+            last = stmts[-1] if stmts else None
+            already_transitions = (
+                isinstance(last, ast.Assign)
+                and any(t.id == '_s' for t in last.targets
+                        if isinstance(t, ast.Name))
+            )
+            if already_transitions:
+                return [('__seq__', stmts)]
             return [('__seq__', stmts + [_state_assign(next_state)])]
 
         # Pass 1: collect all cases (seq blocks get placeholder body)
@@ -214,34 +227,32 @@ class FunctionFlattener(ast.NodeTransformer):
         cases = []
         merge = self._new_id()
 
-        def _chain(node):
+        def _chain(node, loop_merge=None, is_outer=True):
             dec = self._new_id()
             true_s = self._new_id()
-            # Don't apply BC replacement here — top-level already did it
-            raw = self._process_body(node.body, merge)
+            raw = self._process_body(node.body, merge, loop_merge=loop_merge)
             true_b = raw[0][1]
             cases.append((true_s, true_b))
 
             if node.orelse:
                 if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
-                    _chain(node.orelse[0])
-                    # After recursion, elif's decision was inserted at position 0
+                    _chain(node.orelse[0], loop_merge=loop_merge, is_outer=False)
                     false_s = cases[0][0]
                 else:
                     false_s = self._new_id()
-                    raw = self._process_body(node.orelse, merge)
+                    raw = self._process_body(node.orelse, merge, loop_merge=loop_merge)
                     false_b = raw[0][1]
                     cases.append((false_s, false_b))
             else:
                 false_s = merge
 
-            # Always register merge state as a case
-            merge_target = merge_hint if merge_hint else '0'
-            merge_body = []
-            if return_expr is not None:
-                merge_body.append(ast.copy_location(_assign('_rv', return_expr), stmt))
-            merge_body.append(_state_assign(merge_target))
-            cases.append((merge, merge_body))
+            # Only register merge state at outermost level
+            if is_outer:
+                merge_body = []
+                if return_expr is not None:
+                    merge_body.append(ast.copy_location(_assign('_rv', return_expr), stmt))
+                merge_body.append(_state_assign(merge_hint or '0'))
+                cases.append((merge, merge_body))
 
             dec_b = [ast.If(
                 test=node.test,
@@ -249,7 +260,7 @@ class FunctionFlattener(ast.NodeTransformer):
                 orelse=[_state_assign(false_s)])]
             cases.insert(0, (dec, dec_b))
 
-        _chain(stmt)
+        _chain(stmt, loop_merge=merge_hint)
         return cases
 
     # ------------------------------------------------------------------
@@ -274,11 +285,9 @@ class FunctionFlattener(ast.NodeTransformer):
             value=ast.Call(
                 func=_name('next'), args=[_name(iter_name)], keywords=[]))
 
-        # StopIteration handler
+        # StopIteration handler — just exit the loop
+        # (_rv is set by code AFTER the loop, not here)
         exit_b = []
-        if return_expr is not None:
-            # Set _rv from original return expression before exiting
-            exit_b.append(ast.copy_location(_assign('_rv', return_expr), stmt))
         if merge_hint:
             exit_b.append(_state_assign(merge_hint))
         else:
@@ -313,10 +322,8 @@ class FunctionFlattener(ast.NodeTransformer):
 
         self._loop_stack.append((header_s, '0'))
 
-        # Exit handler: set _rv if return_expr provided
+        # Exit handler — just exit the loop
         exit_b = []
-        if return_expr is not None:
-            exit_b.append(ast.copy_location(_assign('_rv', return_expr), stmt))
         if merge_hint:
             exit_b.append(_state_assign(merge_hint))
         else:
@@ -328,7 +335,7 @@ class FunctionFlattener(ast.NodeTransformer):
             orelse=exit_b)]
 
         body_bc = _replace_break_continue(stmt.body, self._loop_stack)
-        body_raw = self._process_body(body_bc, header_s)
+        body_raw = self._process_body(body_bc, header_s, loop_merge=header_s)
         body_b = body_raw[0][1]
         extra_cases = body_raw[1:] if len(body_raw) > 1 else []
 
@@ -431,6 +438,8 @@ class FunctionFlattener(ast.NodeTransformer):
                 break
 
         # Pre-pass: replace returns in entire body tree
+        # (break/continue replacement happens inside _flatten_for/_flatten_while
+        # where the loop stack is properly set up)
         body_stmts = _replace_returns(list(node.body))
         cases = self._process_body(body_stmts, '0', return_expr=return_expr)
 
