@@ -95,18 +95,34 @@ class ImportRewriter(ast.NodeTransformer):
         self._dead_imports = dead_imports
         random.seed()
 
-    def _make_import_expr(self, module_name, strategy):
+    def _make_import_expr(self, module_name, strategy, imported_names=None):
         """Generate an __import__() expression for a module name.
 
         All strategies decode at runtime so the module name is never a literal.
+        For dotted names (e.g., Crypto.Cipher), adds fromlist so __import__
+        returns the submodule and makes imported names accessible.
 
-        Strategies:
-          0 = __import__(base64.b64decode(b'...').decode())
-          1 = __import__(chr(111)+chr(115))
-          2 = __import__(base64.b64decode(chr(...)+chr(...)+...).decode())
-          3 = __import__(__import__('base64').b64decode(b'...').decode())
+        Args:
+            module_name: the module to import (e.g., 'Crypto.Cipher')
+            strategy: encoding strategy (0-3)
+            imported_names: list of names being imported (e.g., ['AES']),
+                           used for fromlist to ensure submodules are loaded
         """
         self._counter += 1
+
+        # For dotted module names, fromlist ensures __import__ returns
+        # the submodule and imports the specific names.
+        if '.' in module_name:
+            if imported_names:
+                fl = imported_names[:1]  # first imported name
+            else:
+                fl = ['']
+            fromlist_kw = [ast.keyword(arg='fromlist', value=ast.List(
+                elts=[ast.Constant(value=n) for n in fl],
+                ctx=ast.Load()
+            ))]
+        else:
+            fromlist_kw = []
 
         b64_import = ast.Call(
             func=ast.Name(id='__import__', ctx=ast.Load()),
@@ -128,7 +144,7 @@ class ImportRewriter(ast.NodeTransformer):
             )
             return ast.Call(
                 func=ast.Name(id='__import__', ctx=ast.Load()),
-                args=[decode_call], keywords=[]
+                args=[decode_call], keywords=fromlist_kw
             )
 
         elif strategy == 1:
@@ -137,7 +153,7 @@ class ImportRewriter(ast.NodeTransformer):
             tree = ast.parse(chr_expr, mode='eval')
             return ast.Call(
                 func=ast.Name(id='__import__', ctx=ast.Load()),
-                args=[tree.body], keywords=[]
+                args=[tree.body], keywords=fromlist_kw
             )
 
         elif strategy == 2:
@@ -157,7 +173,7 @@ class ImportRewriter(ast.NodeTransformer):
             )
             return ast.Call(
                 func=ast.Name(id='__import__', ctx=ast.Load()),
-                args=[decode_call], keywords=[]
+                args=[decode_call], keywords=fromlist_kw
             )
 
         else:  # strategy == 3
@@ -175,7 +191,7 @@ class ImportRewriter(ast.NodeTransformer):
             )
             return ast.Call(
                 func=ast.Name(id='__import__', ctx=ast.Load()),
-                args=[decode_call], keywords=[]
+                args=[decode_call], keywords=fromlist_kw
             )
 
     def _make_dead_import(self):
@@ -269,7 +285,8 @@ class ImportRewriter(ast.NodeTransformer):
 
         # Strategy: random encoding
         strategy = random.randint(0, 3)
-        import_expr = self._make_import_expr(module_name, strategy)
+        imported_names = [alias.name for alias in node.names if alias.name != '*']
+        import_expr = self._make_import_expr(module_name, strategy, imported_names)
 
         # Import module into temp variable
         mod_var = _random_name()
