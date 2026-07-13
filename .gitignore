@@ -8,3 +8,6 @@ docs/
 *.dylib
 *.exe
 .cache/
+.claude/
+.agents/
+__pycache__/

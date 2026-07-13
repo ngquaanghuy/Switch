@@ -19,6 +19,25 @@ struct OpenSSLCleanup {
     ~OpenSSLCleanup() { OPENSSL_thread_stop(); }
 };
 OpenSSLCleanup openssl_cleanup_instance;
+
+// Safe write that handles partial writes and errors.
+// Returns false on failure (error printed to stderr).
+bool safe_write(int fd, const char* data, size_t len) {
+    const char* ptr = data;
+    size_t remaining = len;
+    while (remaining > 0) {
+        ssize_t written = ::write(fd, ptr, remaining);
+        if (written <= 0) {
+            std::cerr << "switch: failed to write temp file: "
+                      << std::generic_category().message(errno) << "\n";
+            return false;
+        }
+        ptr += written;
+        remaining -= static_cast<size_t>(written);
+    }
+    return true;
+}
+
 } // anonymous namespace
 
 int main(int argc, const char* argv[]) {
@@ -40,23 +59,7 @@ int main(int argc, const char* argv[]) {
     if (!args->obf_types.empty()) {
         auto& v = args->obf_types;
         std::stable_sort(v.begin(), v.end(), [](switch_obf::ObfType a, switch_obf::ObfType b) {
-            auto order = [](switch_obf::ObfType t) -> int {
-                switch (t) {
-                case switch_obf::ObfType::DeadCode:            return 10;
-                case switch_obf::ObfType::NameMangling:        return 20;
-                case switch_obf::ObfType::DocStrip:            return 30;
-                case switch_obf::ObfType::Literal:             return 40;
-                case switch_obf::ObfType::StringEncoding:      return 50;
-                case switch_obf::ObfType::ScrambleIdentifiers: return 60;
-                case switch_obf::ObfType::OpaquePredicates:    return 65;
-                case switch_obf::ObfType::XorEncoding:         return 70;
-                case switch_obf::ObfType::VariableSplitting:   return 80;
-                case switch_obf::ObfType::ImportRewrite:       return 90;
-                case switch_obf::ObfType::ControlFlowFlattening: return 95;
-                }
-                return 50;
-            };
-            return order(a) < order(b);
+            return switch_obf::obf_type_priority(a) < switch_obf::obf_type_priority(b);
         });
     }
 
@@ -147,7 +150,11 @@ int main(int argc, const char* argv[]) {
                 std::cerr << "switch: failed to create temp file\n";
                 return 1;
             }
-            write(fd, src.data(), src.size());
+            if (!safe_write(fd, src.data(), src.size())) {
+                close(fd);
+                unlink(obf_tmp.c_str());
+                return 1;
+            }
             close(fd);
             effective_input = obf_tmp;
         }
@@ -351,7 +358,11 @@ int main(int argc, const char* argv[]) {
                 std::cerr << "switch: failed to create temp file\n";
                 return 1;
             }
-            write(fd, src.data(), src.size());
+            if (!safe_write(fd, src.data(), src.size())) {
+                close(fd);
+                unlink(obf_tmp.c_str());
+                return 1;
+            }
             close(fd);
             effective_input = obf_tmp;
         }

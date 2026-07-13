@@ -73,7 +73,21 @@ std::string encrypt_type_name(EncryptType type) {
 }
 
 std::string all_encrypt_names() {
-    return "aes-128, aes-192, aes-256, chacha20, xchacha20, aes-128-gcm, aes-192-gcm, aes-256-gcm, aes-128-ccm, aes-192-ccm, aes-256-ccm, aes-128-siv, aes-256-siv, aes-128-ocb, aes-192-ocb, aes-256-ocb";
+    // Build from encrypt_type_name() to stay in sync with the enum.
+    static const EncryptType types[] = {
+        EncryptType::Aes128, EncryptType::Aes192, EncryptType::Aes256,
+        EncryptType::ChaCha20, EncryptType::XChaCha20,
+        EncryptType::Aes128Gcm, EncryptType::Aes192Gcm, EncryptType::Aes256Gcm,
+        EncryptType::Aes128Ccm, EncryptType::Aes192Ccm, EncryptType::Aes256Ccm,
+        EncryptType::Aes128Siv, EncryptType::Aes256Siv,
+        EncryptType::Aes128Ocb, EncryptType::Aes192Ocb, EncryptType::Aes256Ocb,
+    };
+    std::string result;
+    for (size_t i = 0; i < std::size(types); ++i) {
+        if (i > 0) result += ", ";
+        result += encrypt_type_name(types[i]);
+    }
+    return result;
 }
 
 size_t expected_key_len(EncryptType type) {
@@ -516,6 +530,10 @@ std::vector<uint8_t> aes_ccm_decrypt(const std::vector<uint8_t>& ciphertext,
 namespace {
 
 // GF(2^128) doubling: shift left by 1 bit, XOR 0x87 if MSB was set.
+// Byte-order convention: block[0] holds the MSB (big-endian byte order),
+// consistent with AES-CMAC output per RFC 5297 S2V. The carry propagates
+// from block[0] → block[15], and the reduction polynomial 0x87 is applied
+// to the LSB (block[15]) when the MSB was set before the shift.
 static void gf128_double(uint8_t block[16]) {
     uint8_t msb = block[0] & 0x80;
     // Shift left by 1 bit
@@ -1107,16 +1125,12 @@ bool encrypt_file(EncryptType type,
     }
     in.close();
 
-    // 2. Safe key trim — validate key length before encryption
+    // 2. Validate key length
     size_t key_len = expected_key_len(type);
     if (key.size() < key_len) {
         error_msg = "key too short for " + encrypt_type_name(type);
         return false;
     }
-    // SIV uses full key (48/64 bytes), no trimming
-    std::vector<uint8_t> key_trimmed(key.begin(),
-        (type == EncryptType::Aes128Siv || type == EncryptType::Aes256Siv)
-            ? key.end() : key.begin() + key_len);
 
     // 3. Encrypt
     std::vector<uint8_t> ciphertext = encrypt(type, data, key, iv_or_nonce);
@@ -1127,7 +1141,7 @@ bool encrypt_file(EncryptType type,
 
     // 4. Base64-encode ciphertext, key, and IV/nonce for embedding
     std::string b64_ct   = base64_encode(ciphertext);
-    std::string b64_key  = base64_encode(key_trimmed);
+    std::string b64_key  = base64_encode(key);
     std::string b64_iv   = base64_encode(iv_or_nonce);
 
     // 5. Generate self-decryptable Python wrapper

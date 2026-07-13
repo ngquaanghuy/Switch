@@ -36,4 +36,8 @@ std::string all_obf_names();
 // Returns obfuscated source. std::nullopt on error.
 std::optional<std::string> obfuscate(ObfType type, const std::string& source);
 
+// Get pipeline priority for an obfuscation type (lower = runs first).
+// Used to auto-sort techniques in the correct dependency order.
+int obf_type_priority(ObfType type);
+
 } // namespace switch_obf

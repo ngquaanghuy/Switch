@@ -73,7 +73,41 @@ std::string_view obf_type_name(ObfType type) {
 }
 
 std::string all_obf_names() {
-    return "namemangling, stringencoding, docstrip, literal, xorencoding, importrewrite, deadcode, scramble, variablesplitting, opaquepredicates, controlflowflattening";
+    // Build from obf_type_name() to stay in sync with the enum.
+    static const ObfType types[] = {
+        ObfType::NameMangling, ObfType::StringEncoding, ObfType::DocStrip,
+        ObfType::Literal, ObfType::XorEncoding, ObfType::ImportRewrite,
+        ObfType::DeadCode, ObfType::ScrambleIdentifiers,
+        ObfType::VariableSplitting, ObfType::OpaquePredicates,
+        ObfType::ControlFlowFlattening,
+    };
+    std::string result;
+    for (size_t i = 0; i < std::size(types); ++i) {
+        if (i > 0) result += ", ";
+        result += obf_type_name(types[i]);
+    }
+    return result;
+}
+
+int obf_type_priority(ObfType type) {
+    // Pipeline ordering: lower number = runs first.
+    // scramble MUST run before xorencoding and importrewrite (those generate
+    // code with identifiers that scramble would corrupt).
+    // importrewrite MUST run last among import-related techniques.
+    switch (type) {
+    case ObfType::DeadCode:            return 10;
+    case ObfType::NameMangling:        return 20;
+    case ObfType::DocStrip:            return 30;
+    case ObfType::Literal:             return 40;
+    case ObfType::StringEncoding:      return 50;
+    case ObfType::ScrambleIdentifiers: return 60;
+    case ObfType::OpaquePredicates:    return 65;
+    case ObfType::XorEncoding:         return 70;
+    case ObfType::VariableSplitting:   return 80;
+    case ObfType::ImportRewrite:       return 90;
+    case ObfType::ControlFlowFlattening: return 95;
+    }
+    return 50;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,9 +118,13 @@ std::string all_obf_names() {
 static std::string find_script_path(const std::string& script_name) {
     // In development: script is at ../scripts/ relative to binary
     // Binary is at build/switch, script at scripts/obf_namemangling.py
-    // We try relative to /proc/self/exe on Linux, or fallback to cwd-relative
+    //
+    // Platform note: /proc/self/exe is Linux-specific. On macOS we would use
+    // _NSGetExecutablePath(); on Windows, GetModuleFileName(). Since this tool
+    // currently targets Linux primarily, we use /proc/self/exe with a fallback
+    // to cwd-relative paths that works on all platforms.
 
-    // Try to get binary directory from /proc/self/exe (Linux)
+    // Try to get binary directory from /proc/self/exe (Linux only)
     char exe_path[4096] = {};
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (len > 0) {

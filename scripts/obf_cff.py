@@ -491,7 +491,16 @@ def obfuscate(source):
     new_tree = flattener.visit(tree)
     ast.fix_missing_locations(new_tree)
 
-    return ast.unparse(new_tree) + "\n"
+    # Prefix output with a runtime version guard so users on <3.10
+    # get a clear error instead of a cryptic SyntaxError.
+    header = (
+        "# -- Do not remove: Python 3.10+ required for match/case --\n"
+        "import sys as _sw_sys\n"
+        "if _sw_sys.version_info < (3, 10):\n"
+        "    raise SystemExit('This file requires Python 3.10+ (match/case syntax)')\n"
+        "del _sw_sys\n\n"
+    )
+    return header + ast.unparse(new_tree) + "\n"
 
 
 def main():

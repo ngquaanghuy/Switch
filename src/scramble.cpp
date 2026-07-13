@@ -42,6 +42,7 @@ static const std::unordered_set<std::string>& python_keywords() {
 
 static const std::unordered_set<std::string>& python_builtins() {
     static const std::unordered_set<std::string> bis = {
+        // Python built-in functions
         "abs", "all", "any", "bin", "bool", "bytearray", "bytes",
         "callable", "chr", "classmethod", "compile", "complex",
         "delattr", "dict", "dir", "divmod", "enumerate", "eval", "exec",
@@ -63,35 +64,32 @@ static const std::unordered_set<std::string>& python_builtins() {
         // Common conventions
         "self", "cls",
         // Common string/bytes methods (must not be renamed — they're built-in)
-        "encode", "decode", "format", "replace", "split", "join",
+        "encode", "decode", "replace", "split", "join",
         "strip", "lstrip", "rstrip", "upper", "lower", "title",
         "capitalize", "startswith", "endswith", "find", "rfind",
         "count", "center", "ljust", "rjust", "zfill", "expandtabs",
         "translate", "maketrans", "isalnum", "isalpha", "isdigit",
         "islower", "isupper", "isspace", "istitle", "isnumeric",
         "isdecimal", "isidentifier", "iskeyword", "isprintable",
-        "isascii", "isascii",
+        "isascii",
         "b64encode", "b64decode", "b32encode", "b32decode",
         "b16encode", "b16decode", "b85encode", "b85decode",
-        "encodebytes", "decodebytes", "encode", "decode",
+        "encodebytes", "decodebytes",
         "hexlify", "unhexlify",
         // Common list/dict/set methods
         "append", "extend", "insert", "remove", "pop", "clear",
-        "index", "count", "sort", "reverse", "copy",
+        "index", "sort", "reverse", "copy",
         "keys", "values", "items", "get", "update", "setdefault",
         "popitem", "fromkeys",
-        "add", "discard", "remove", "pop", "union", "intersection",
+        "add", "discard", "union", "intersection",
         "difference", "symmetric_difference", "issubset", "issuperset",
         // Common file/object methods
         "read", "readline", "readlines", "write", "writelines",
         "seek", "tell", "flush", "close", "fileno",
         "name", "mode", "closed", "readable", "writable", "seekable",
-        // Common type check/conversion methods
-        "append", "extend", "insert", "remove", "pop", "clear",
-        "index", "count", "sort", "reverse", "copy",
         // Common math/io methods
-        "sqrt", "log", "sin", "cos", "tan", "pow",
-        "getcwd", "listdir", "makedirs", "mkdir", "rmdir", "remove",
+        "sqrt", "log", "sin", "cos", "tan",
+        "getcwd", "listdir", "makedirs", "mkdir", "rmdir",
         "rename", "stat", "access", "chmod", "chown",
         "pathjoin", "dirname", "basename", "exists", "isfile", "isdir",
         "abspath", "relpath", "realpath", "normpath", "splitext",
@@ -103,13 +101,7 @@ static const std::unordered_set<std::string>& python_builtins() {
         "isoformat", "fromisoformat",
         // Common re/regex methods
         "match", "search", "findall", "finditer", "sub", "subn",
-        "split", "compile", "fullmatch",
-        // Common os/pathlib methods
-        "getcwd", "listdir", "makedirs", "mkdir", "rmdir", "remove",
-        "rename", "stat", "access", "chmod", "chown",
-        // Common io methods
-        "read", "readline", "readlines", "write", "writelines",
-        "seek", "tell", "flush", "close",
+        "fullmatch",
     };
     return bis;
 }
@@ -159,6 +151,7 @@ public:
 private:
     std::mt19937 rng_;
     std::unordered_map<std::string, std::string> map_;
+    std::unordered_map<std::string, std::string> reverse_map_;  // value→key for O(1) collision check
     std::unordered_set<std::string> import_names_;  // module names from import statements
     std::unordered_set<std::string> module_names_;   // names that are module objects (for dot-attr)
     // Tracks two related states via one flag:
@@ -192,11 +185,11 @@ private:
     std::string map_id(const std::string& id) {
         if (map_.count(id)) return map_[id];
         std::string name = gen_name();
-        while (std::any_of(map_.begin(), map_.end(),
-                           [&name](const auto& p) { return p.second == name; })) {
+        while (reverse_map_.count(name)) {
             name = gen_name();
         }
         map_[id] = name;
+        reverse_map_[name] = id;
         return name;
     }
 
