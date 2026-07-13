@@ -6,6 +6,7 @@
 #include <array>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 
 namespace switch_obf {
 
@@ -16,7 +17,28 @@ namespace switch_obf {
 static bool python3_available() {
     static int cached = -1; // -1 = unchecked, 0 = unavailable, 1 = available
     if (cached >= 0) return cached == 1;
-    cached = (system("python3 -c '' >/dev/null 2>&1") == 0) ? 1 : 0;
+
+    // Check python3 availability via fork+execvp (no shell involved)
+    pid_t pid = fork();
+    if (pid < 0) {
+        cached = 0;
+    } else if (pid == 0) {
+        // Child: redirect stdout/stderr to /dev/null, then exec python3
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        const char* argv[] = {"python3", "-c", "", nullptr};
+        execvp("python3", const_cast<char**>(argv));
+        _exit(127); // exec failed
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+        cached = (WIFEXITED(status) && WEXITSTATUS(status) == 0) ? 1 : 0;
+    }
+
     if (!cached) {
         fprintf(stderr, "switch: python3 is not installed or not in PATH\n"
                         "switch: obfuscation requires Python 3.8+\n");
@@ -216,10 +238,44 @@ std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     }
     close(fd_in);
 
-    // Run Python script — capture stderr separately for diagnostics
-    std::string run_cmd = "python3 \"" + script_path + "\" < \"" + tmp_in
-                        + "\" > \"" + tmp_out + "\" 2>\"" + tmp_err + "\"";
-    int rc = system(run_cmd.c_str());
+    // Run Python script via fork+execvp — no shell, no injection risk.
+    // Redirect stdin/stdout/stderr to temp files via dup2 in child.
+    int fd_in_read = open(tmp_in, O_RDONLY);
+    if (fd_in_read < 0) {
+        close(fd_out); close(fd_err);
+        unlink(tmp_in); unlink(tmp_out); unlink(tmp_err);
+        return std::nullopt;
+    }
+
+    pid_t child_pid = fork();
+    if (child_pid < 0) {
+        close(fd_in_read); close(fd_out); close(fd_err);
+        unlink(tmp_in); unlink(tmp_out); unlink(tmp_err);
+        return std::nullopt;
+    }
+
+    if (child_pid == 0) {
+        // Child: redirect stdin/stdout/stderr, then exec python3
+        dup2(fd_in_read, STDIN_FILENO);
+        dup2(fd_out, STDOUT_FILENO);
+        dup2(fd_err, STDERR_FILENO);
+        close(fd_in_read);
+        close(fd_out);
+        close(fd_err);
+
+        const char* child_argv[] = {"python3", script_path.c_str(), nullptr};
+        execvp("python3", const_cast<char**>(child_argv));
+        _exit(127); // exec failed
+    }
+
+    // Parent: close fds and wait for child
+    close(fd_in_read);
+    close(fd_out);
+    close(fd_err);
+
+    int status;
+    waitpid(child_pid, &status, 0);
+    int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
     // Read stderr for error diagnostics (F6)
     std::string stderr_output;
