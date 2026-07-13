@@ -74,6 +74,8 @@ std::optional<ObfType> parse_obf_type(std::string_view name) {
     if (ieq(name, "variablesplitting")) return ObfType::VariableSplitting;
     if (ieq(name, "opaquepredicates")) return ObfType::OpaquePredicates;
     if (ieq(name, "controlflowflattening")) return ObfType::ControlFlowFlattening;
+    if (ieq(name, "inline")) return ObfType::Inlining;
+    if (ieq(name, "outline")) return ObfType::Outlining;
     return std::nullopt;
 }
 
@@ -90,6 +92,8 @@ std::string_view obf_type_name(ObfType type) {
     case ObfType::VariableSplitting: return "variablesplitting";
     case ObfType::OpaquePredicates: return "opaquepredicates";
     case ObfType::ControlFlowFlattening: return "controlflowflattening";
+    case ObfType::Inlining: return "inline";
+    case ObfType::Outlining: return "outline";
     }
     return "unknown";
 }
@@ -101,7 +105,7 @@ std::string all_obf_names() {
         ObfType::Literal, ObfType::XorEncoding, ObfType::ImportRewrite,
         ObfType::DeadCode, ObfType::ScrambleIdentifiers,
         ObfType::VariableSplitting, ObfType::OpaquePredicates,
-        ObfType::ControlFlowFlattening,
+        ObfType::ControlFlowFlattening, ObfType::Inlining, ObfType::Outlining,
     };
     std::string result;
     for (size_t i = 0; i < std::size(types); ++i) {
@@ -128,6 +132,8 @@ int obf_type_priority(ObfType type) {
     case ObfType::VariableSplitting:   return 80;
     case ObfType::ImportRewrite:       return 90;
     case ObfType::ControlFlowFlattening: return 95;
+    case ObfType::Inlining:  return 15;  // After DeadCode(10), before Outlining
+    case ObfType::Outlining: return 25;  // After Inlining, before NameMangling(30)
     }
     return 50;
 }
@@ -200,6 +206,8 @@ std::optional<std::string> obfuscate(ObfType type, const std::string& source) {
     case ObfType::VariableSplitting: script_name = "obf_varsplit.py"; break;
     case ObfType::OpaquePredicates: script_name = "obf_opaque.py"; break;
     case ObfType::ControlFlowFlattening: script_name = "obf_cff.py"; break;
+    case ObfType::Inlining:  script_name = "obf_inline.py"; break;
+    case ObfType::Outlining: script_name = "obf_outline.py"; break;
     }
 
     std::string script_path = find_script_path(script_name);

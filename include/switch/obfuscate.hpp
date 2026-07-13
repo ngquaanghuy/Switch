@@ -20,6 +20,8 @@ enum class ObfType {
     VariableSplitting, // Split bool/int/float into sub-variables (Python AST)
     OpaquePredicates,  // Inject known-True/False branches (Python AST)
     ControlFlowFlattening, // Flatten function bodies into while+match/case dispatcher
+    Inlining,          // Inline function calls into callers (Python AST)
+    Outlining,         // Extract statement blocks into junk functions (Python AST)
 };
 
 // Parse an obfuscation technique name (case-insensitive).

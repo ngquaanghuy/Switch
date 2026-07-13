@@ -818,3 +818,281 @@ TEST_CASE("obf: controlflowflattening — nested func/class preserved") {
     CHECK(result->find("def inner") != std::string::npos);
     CHECK(is_valid_python(*result));
 }
+
+// ---------------------------------------------------------------------------
+// Inlining
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: inline — parse and type name") {
+    CHECK(parse_obf_type("inline") == ObfType::Inlining);
+    CHECK(parse_obf_type("Inline") == ObfType::Inlining);
+    CHECK(parse_obf_type("INLINE") == ObfType::Inlining);
+    CHECK(obf_type_name(ObfType::Inlining) == "inline");
+    CHECK(all_obf_names().find("inline") != std::string::npos);
+}
+
+TEST_CASE("obf: inline — simple function inlined in assignment") {
+    std::string code = "def f(x): return x * 2\nresult = f(5)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("f(5)") == std::string::npos);  // call removed
+    CHECK(result->find("5 * 2") != std::string::npos); // body inlined
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — output runs correctly") {
+    std::string code = "def f(x): return x * 2\nresult = f(5)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("10") != std::string::npos);
+}
+
+TEST_CASE("obf: inline — function removed after inlining") {
+    std::string code = "def f(x): return x + 1\nresult = f(3)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def f") == std::string::npos);  // function removed
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — skips recursive functions") {
+    std::string code = "def f(n):\n    if n <= 0: return 0\n    return f(n-1) + 1\nresult = f(5)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def f") != std::string::npos);  // function kept
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — skips *args functions") {
+    std::string code = "def f(*args): return len(args)\nresult = f(1, 2, 3)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def f") != std::string::npos);  // function kept
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — skips functions with global") {
+    std::string code = "g = 0\ndef f(x):\n    global g\n    g = x\n    return g\nresult = f(5)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def f") != std::string::npos);  // function kept
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — inlines in if-test context") {
+    std::string code = "def is_pos(x): return x > 0\nif is_pos(5):\n    print('yes')\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("is_pos(5)") == std::string::npos);
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: inline — skips multiple-return functions") {
+    std::string code = "def f(x):\n    if x > 0: return True\n    return False\nresult = f(5)\nprint(result)\n";
+    auto result = obfuscate(ObfType::Inlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("def f") != std::string::npos);  // kept (multiple returns)
+    CHECK(is_valid_python(*result));
+}
+
+// ---------------------------------------------------------------------------
+// Inlining stacking
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: inline → scramble — valid Python") {
+    std::string code = "def f(x): return x * 2\nresult = f(5)\nprint(result)\n";
+    auto step1 = obfuscate(ObfType::Inlining, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: inline → namemangling — valid Python") {
+    std::string code = "def f(x): return x * 2\nresult = f(5)\nprint(result)\n";
+    auto step1 = obfuscate(ObfType::Inlining, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::NameMangling, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: deadcode → inline → scramble — valid Python") {
+    std::string code = "def f(x): return x * 2\nresult = f(5)\nprint(result)\n";
+    auto step1 = obfuscate(ObfType::DeadCode, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::Inlining, *step1);
+    REQUIRE(step2.has_value());
+    auto step3 = obfuscate(ObfType::ScrambleIdentifiers, *step2);
+    REQUIRE(step3.has_value());
+    CHECK(is_valid_python(*step3));
+}
+
+// ---------------------------------------------------------------------------
+// Outlining
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf: outline — parse and type name") {
+    CHECK(parse_obf_type("outline") == ObfType::Outlining);
+    CHECK(parse_obf_type("Outline") == ObfType::Outlining);
+    CHECK(parse_obf_type("OUTLINE") == ObfType::Outlining);
+    CHECK(obf_type_name(ObfType::Outlining) == "outline");
+    CHECK(all_obf_names().find("outline") != std::string::npos);
+}
+
+TEST_CASE("obf: outline — extracts statements into function") {
+    std::string code =
+        "def process(data):\n"
+        "    a = data * 2\n"
+        "    b = a + 10\n"
+        "    c = b // 3\n"
+        "    d = c - 1\n"
+        "    result = d ** 2\n"
+        "    print(f'Result: {result}')\n"
+        "process(5)\n";
+    auto result = obfuscate(ObfType::Outlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("_of") != std::string::npos);  // junk function created
+    CHECK(is_valid_python(*result));
+}
+
+TEST_CASE("obf: outline — output runs correctly") {
+    std::string code =
+        "def process(data):\n"
+        "    a = data * 2\n"
+        "    b = a + 10\n"
+        "    c = b // 3\n"
+        "    d = c - 1\n"
+        "    result = d ** 2\n"
+        "    print(f'Result: {result}')\n"
+        "process(5)\n";
+    auto result = obfuscate(ObfType::Outlining, code);
+    REQUIRE(result.has_value());
+    std::string output;
+    int rc = run_python(*result, output);
+    CHECK(rc == 0);
+    CHECK(output.find("Result:") != std::string::npos);
+}
+
+TEST_CASE("obf: outline — skips tiny functions") {
+    std::string code = "def f(x):\n    return x + 1\nprint(f(5))\n";
+    auto result = obfuscate(ObfType::Outlining, code);
+    REQUIRE(result.has_value());
+    CHECK(result->find("_of") == std::string::npos);  // no junk function
+    CHECK(is_valid_python(*result));
+}
+
+// ---------------------------------------------------------------------------
+// Outlining stacking
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: outline → scramble — valid Python") {
+    std::string code =
+        "def process(data):\n"
+        "    a = data * 2\n"
+        "    b = a + 10\n"
+        "    c = b // 3\n"
+        "    d = c - 1\n"
+        "    result = d ** 2\n"
+        "    print(f'Result: {result}')\n"
+        "process(5)\n";
+    auto step1 = obfuscate(ObfType::Outlining, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::ScrambleIdentifiers, *step1);
+    REQUIRE(step2.has_value());
+    CHECK(is_valid_python(*step2));
+}
+
+TEST_CASE("obf stacking: outline → deadcode → scramble — valid Python") {
+    std::string code =
+        "def process(data):\n"
+        "    a = data * 2\n"
+        "    b = a + 10\n"
+        "    c = b // 3\n"
+        "    d = c - 1\n"
+        "    result = d ** 2\n"
+        "    print(f'Result: {result}')\n"
+        "process(5)\n";
+    auto step1 = obfuscate(ObfType::Outlining, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::DeadCode, *step1);
+    REQUIRE(step2.has_value());
+    auto step3 = obfuscate(ObfType::ScrambleIdentifiers, *step2);
+    REQUIRE(step3.has_value());
+    CHECK(is_valid_python(*step3));
+}
+
+// ---------------------------------------------------------------------------
+// Combined inline + outline
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: inline → outline → scramble — valid Python") {
+    std::string code =
+        "def double(x): return x * 2\n"
+        "def process(data):\n"
+        "    a = double(data)\n"
+        "    b = a + 10\n"
+        "    c = b // 3\n"
+        "    d = c - 1\n"
+        "    result = d ** 2\n"
+        "    print(f'Result: {result}')\n"
+        "process(5)\n";
+    auto step1 = obfuscate(ObfType::Inlining, code);
+    REQUIRE(step1.has_value());
+    auto step2 = obfuscate(ObfType::Outlining, *step1);
+    REQUIRE(step2.has_value());
+    auto step3 = obfuscate(ObfType::ScrambleIdentifiers, *step2);
+    REQUIRE(step3.has_value());
+    CHECK(is_valid_python(*step3));
+}
+
+// ---------------------------------------------------------------------------
+// Updated stress test: all 13 techniques
+// ---------------------------------------------------------------------------
+
+TEST_CASE("obf stacking: all 13 techniques — valid Python") {
+    REQUIRE(python3_available());
+
+    std::string code =
+        "import os\n"
+        "import json\n"
+        "\n"
+        "def process():\n"
+        "    \"\"\"Process files.\"\"\"\n"
+        "    files = os.listdir('/tmp')\n"
+        "    data = json.dumps({'count': len(files)})\n"
+        "    return data\n"
+        "\n"
+        "result = process()\n"
+        "print(result)\n";
+
+    std::vector<ObfType> pipeline = {
+        ObfType::DeadCode,            // 10
+        ObfType::Inlining,            // 15
+        ObfType::Outlining,           // 25
+        ObfType::NameMangling,        // 30
+        ObfType::DocStrip,            // 40
+        ObfType::Literal,             // 50
+        ObfType::StringEncoding,      // 60
+        ObfType::ScrambleIdentifiers, // 65
+        ObfType::OpaquePredicates,    // 70
+        ObfType::XorEncoding,         // 75
+        ObfType::VariableSplitting,   // 80
+        ObfType::ImportRewrite,       // 90
+        ObfType::ControlFlowFlattening, // 95
+    };
+
+    std::string current = code;
+    for (auto type : pipeline) {
+        auto step = obfuscate(type, current);
+        INFO("failed at: ", obf_type_name(type));
+        REQUIRE(step.has_value());
+        CHECK(!step->empty());
+        current = *step;
+    }
+
+    CHECK(is_valid_python(current));
+}
