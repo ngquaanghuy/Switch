@@ -304,16 +304,26 @@ private:
                     if (id == "import" || id == "from") {
                         // Skip module names after import/from — they reference real modules
                         // Stop at newline to avoid consuming next line's code
-                        bool is_from = (id == "from");
+                        // Handles dotted names: from Crypto.Cipher import AES
                         while (i < n && src[i] != '\n') {
                             while (i < n && (src[i] == ' ' || src[i] == '\t' || src[i] == ',')) ++i;
-                            if (i >= n || src[i] == '\n' || !is_id_start(src[i])) break;
+                            if (i >= n || src[i] == '\n') break;
+                            if (!is_id_start(src[i])) break;
 
                             std::string peek_id = collect_id(src, i);
                             if (peek_id == "as") {
                                 while (i < n && (src[i] == ' ' || src[i] == '\t')) ++i;
                                 if (i < n && is_id_start(src[i])) collect_id(src, i);
                                 continue;
+                            }
+                            // Collect dotted name parts: Crypto.Cipher → add both
+                            while (i < n && src[i] == '.') {
+                                ++i; // skip dot
+                                if (i < n && is_id_start(src[i])) {
+                                    std::string part = collect_id(src, i);
+                                    import_names_.insert(part);
+                                    module_names_.insert(part);
+                                }
                             }
                             // For "import X": X is module name → skip always
                             // For "from X import Y": Y is imported name → skip (must not rename)
@@ -547,6 +557,7 @@ private:
 
                     if (id == "import" || id == "from") {
                         // Output keyword as-is, then pass through module names without mapping
+                        // Handles dotted names: from Crypto.Cipher import AES
                         out += id;
                         // Consume: import <name> [, <name>] [as <alias>] — stop at newline
                         while (i < n && src[i] != '\n') {
@@ -554,7 +565,8 @@ private:
                             while (i < n && (src[i] == ' ' || src[i] == '\t' || src[i] == ',')) {
                                 out += src[i]; ++i;
                             }
-                            if (i >= n || src[i] == '\n' || !is_id_start(src[i])) break;
+                            if (i >= n || src[i] == '\n') break;
+                            if (!is_id_start(src[i])) break;
 
                             std::string mod_id = collect_id(src, i);
                             if (mod_id == "as") {
@@ -568,6 +580,15 @@ private:
                                 }
                             } else {
                                 out += mod_id;
+                                // Output dotted name parts: Crypto.Cipher → both as-is
+                                while (i < n && src[i] == '.') {
+                                    out += src[i]; ++i; // output dot
+                                    if (i < n && is_id_start(src[i])) {
+                                        size_t part_start = i;
+                                        collect_id(src, i);
+                                        out += src.substr(part_start, i - part_start);
+                                    }
+                                }
                             }
                         }
                         continue;
