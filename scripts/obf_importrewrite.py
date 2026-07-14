@@ -100,25 +100,24 @@ class ImportRewriter(ast.NodeTransformer):
 
         All strategies decode at runtime so the module name is never a literal.
         For dotted names (e.g., Crypto.Cipher), adds fromlist so __import__
-        returns the submodule and makes imported names accessible.
+        returns the correct submodule and makes imported names accessible.
 
-        Args:
-            module_name: the module to import (e.g., 'Crypto.Cipher')
-            strategy: encoding strategy (0-3)
-            imported_names: list of names being imported (e.g., ['AES']),
-                           used for fromlist to ensure submodules are loaded
+        Strategies:
+          0 = __import__(base64.b64decode(b'...').decode())
+          1 = __import__(chr(111)+chr(115))
+          2 = __import__(base64.b64decode(chr(...)+chr(...)+...).decode())
+          3 = __import__(__import__('base64').b64decode(b'...').decode())
         """
         self._counter += 1
 
         # For dotted module names, fromlist ensures __import__ returns
         # the submodule and imports the specific names.
-        if '.' in module_name:
-            if imported_names:
-                fl = imported_names[:1]  # first imported name
-            else:
-                fl = ['']
+        # __import__('Crypto.Cipher') returns Crypto (top-level).
+        # __import__('Crypto.Cipher', fromlist=['AES']) returns Crypto.Cipher
+        # and makes AES accessible.
+        if '.' in module_name and imported_names:
             fromlist_kw = [ast.keyword(arg='fromlist', value=ast.List(
-                elts=[ast.Constant(value=n) for n in fl],
+                elts=[ast.Constant(value=n) for n in imported_names],
                 ctx=ast.Load()
             ))]
         else:
@@ -296,7 +295,7 @@ class ImportRewriter(ast.NodeTransformer):
         )
         new_stmts.append(assign)
 
-        # For each imported name: alias = mod_var.name
+        # For each imported name: alias = mod_var.attr_name
         for alias in node.names:
             attr_name = alias.name
             out_name = alias.asname or attr_name
@@ -308,7 +307,7 @@ class ImportRewriter(ast.NodeTransformer):
             if self._dead_imports and random.random() < 0.2:
                 new_stmts.append(self._make_dead_import())
 
-            # mod_var.attr_name
+            # mod_var.attr_name — fromlist ensures the submodule is loaded
             attr_access = ast.Attribute(
                 value=ast.Name(id=mod_var, ctx=ast.Load()),
                 attr=attr_name,
