@@ -41,11 +41,30 @@ def _get_read_names(node):
 
 
 def _get_written_names(node):
-    """Get all names that are WRITTEN (stored) in an AST node."""
+    """Get all names that are WRITTEN (stored) in an AST node.
+    Excludes list/set/dict comprehension variables (they don't leak scope in Python 3)."""
     names = set()
-    for child in ast.walk(node):
-        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
-            names.add(child.id)
+
+    def _walk(n, in_comprehension=False):
+        if isinstance(n, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            # Walk comprehension generators (iter/ifs) but NOT the target
+            for gen in n.generators:
+                _walk(gen.iter, in_comprehension=True)
+                for if_clause in gen.ifs:
+                    _walk(if_clause, in_comprehension=True)
+            # Walk the elt/value expression (reads) in comprehension scope
+            if hasattr(n, 'elt'):
+                _walk(n.elt, in_comprehension=True)
+            if hasattr(n, 'key'):
+                _walk(n.key, in_comprehension=True)
+                _walk(n.value, in_comprehension=True)
+            return
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and not in_comprehension:
+            names.add(n.id)
+        for child in ast.iter_child_nodes(n):
+            _walk(child, in_comprehension)
+
+    _walk(node)
     return names
 
 
@@ -166,8 +185,9 @@ def _analyze_data_flow(stmts, preceding_names):
         all_written |= written
         written_so_far |= written
 
-    # Inputs: names read that were defined before the group
-    inputs = all_read & preceding_names
+    # Inputs: names read BEFORE being written, that were defined before the group
+    # Exclude names that are also written in the group (they're defined within)
+    inputs = all_read & preceding_names - all_written
 
     # Outputs: names written that are used after the group
     # For simplicity, return all written names (conservative)

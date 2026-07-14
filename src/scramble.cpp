@@ -355,7 +355,16 @@ private:
                     } else if (!is_keyword(id) && !is_builtin(id) && import_names_.count(id) == 0) {
                         // Skip keywords, builtins, dunders
                         bool is_dunder = id.size() > 4 && id.substr(0, 2) == "__" && id.substr(id.size() - 2) == "__";
-                        if (!is_dunder) {
+                        // Skip keyword arguments: name=value (no space before =)
+                        bool is_kwarg = false;
+                        {
+                            if (i < n && src[i] == '=' && (i == 0 || src[i-1] != ' ' && src[i-1] != '\t')) {
+                                if (i + 1 < n && src[i + 1] != '=') {
+                                    is_kwarg = true;
+                                }
+                            }
+                        }
+                        if (!is_dunder && !is_kwarg) {
                             map_id(id);
                         }
                     }
@@ -639,11 +648,28 @@ private:
                         after_dot_ = false;
                         out += id;
                     } else {
-                        auto it = map_.find(id);
-                        if (it != map_.end() && import_names_.count(id) == 0) {
-                            out += it->second;
+                        // Check if this is a keyword argument: name=value (no space before =)
+                        // In function calls: f(key=5) — no space before =
+                        // In assignments: key = 5 — space before =
+                        bool is_kwarg = false;
+                        {
+                            // i points right after the identifier
+                            if (i < n && src[i] == '=' && (i == 0 || src[i-1] != ' ' && src[i-1] != '\t')) {
+                                // Check it's not ==
+                                if (i + 1 < n && src[i + 1] != '=') {
+                                    is_kwarg = true;
+                                }
+                            }
+                        }
+                        if (is_kwarg) {
+                            out += id;  // keyword names must not be renamed
                         } else {
-                            out += id;
+                            auto it = map_.find(id);
+                            if (it != map_.end() && import_names_.count(id) == 0) {
+                                out += it->second;
+                            } else {
+                                out += id;
+                            }
                         }
                     }
                     // Check if this identifier is a module name for dot-attribute tracking

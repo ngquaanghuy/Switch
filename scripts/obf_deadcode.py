@@ -597,12 +597,14 @@ class DeadCodeInjector(ast.NodeTransformer):
             _gen_dead_try_except,
             _gen_dead_listcomp,
             _gen_dead_loop,
-            _gen_opaque_if_true,
-            _gen_opaque_if_false,
         ]
 
         for i, stmt in enumerate(body):
             new_body.append(stmt)
+
+            # Skip dead code injection after terminating statements
+            if isinstance(stmt, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+                continue
 
             # After each real statement, inject dead code
             # Use modulo to vary density

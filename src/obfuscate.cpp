@@ -127,13 +127,13 @@ int obf_type_priority(ObfType type) {
     case ObfType::Literal:             return 40;
     case ObfType::StringEncoding:      return 50;
     case ObfType::ScrambleIdentifiers: return 60;
-    case ObfType::OpaquePredicates:    return 65;
     case ObfType::XorEncoding:         return 70;
     case ObfType::VariableSplitting:   return 80;
     case ObfType::ImportRewrite:       return 90;
-    case ObfType::ControlFlowFlattening: return 95;
     case ObfType::Inlining:  return 15;  // After DeadCode(10), before Outlining
     case ObfType::Outlining: return 25;  // After Inlining, before NameMangling(30)
+    case ObfType::ControlFlowFlattening: return 76;  // After XOR(75), before OpaquePredicates
+    case ObfType::OpaquePredicates: return 78;  // After CFF(76) — must not run before CFF
     }
     return 50;
 }

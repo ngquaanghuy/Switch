@@ -231,8 +231,10 @@ class FunctionFlattener(ast.NodeTransformer):
             dec = self._new_id()
             true_s = self._new_id()
             raw = self._process_body(node.body, merge, loop_merge=loop_merge)
+            # Include ALL cases from _process_body, not just the first
             true_b = raw[0][1]
             cases.append((true_s, true_b))
+            cases.extend(raw[1:])  # additional cases from nested control flow
 
             if node.orelse:
                 if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
@@ -243,6 +245,7 @@ class FunctionFlattener(ast.NodeTransformer):
                     raw = self._process_body(node.orelse, merge, loop_merge=loop_merge)
                     false_b = raw[0][1]
                     cases.append((false_s, false_b))
+                    cases.extend(raw[1:])  # additional cases from nested control flow
             else:
                 false_s = merge
 
@@ -255,10 +258,10 @@ class FunctionFlattener(ast.NodeTransformer):
         _chain(stmt, loop_merge=merge_hint)
 
         # Register merge state (outermost only — elif branches use the same merge)
-        merge_body = []
-        if return_expr is not None:
-            merge_body.append(ast.copy_location(_assign('_rv', return_expr), stmt))
-        merge_body.append(_state_assign(merge_hint or '0'))
+        # NOTE: _rv is already set by _replace_returns at each return point,
+        # so we do NOT set it here — the variables in return_expr may not be
+        # in scope at the merge point.
+        merge_body = [_state_assign(merge_hint or '0')]
         cases.append((merge, merge_body))
 
         return cases
@@ -285,15 +288,9 @@ class FunctionFlattener(ast.NodeTransformer):
             value=ast.Call(
                 func=_name('next'), args=[_name(iter_name)], keywords=[]))
 
-        # StopIteration handler — exit loop and set _rv if safe
+        # StopIteration handler — exit loop
+        # _rv already set by _replace_returns at each return point
         exit_b = []
-        if return_expr is not None:
-            _ref_names = {n.id for n in ast.walk(return_expr)
-                         if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
-            _loop_vars = {n.id for n in ast.walk(stmt)
-                         if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
-            if not (_ref_names - _loop_vars):
-                exit_b.append(ast.copy_location(_assign('_rv', return_expr), stmt))
         if merge_hint:
             exit_b.append(_state_assign(merge_hint))
         else:
@@ -390,11 +387,8 @@ class FunctionFlattener(ast.NodeTransformer):
             finally_b = _extract_body(self._process_body(finally_bc, merge_s))
             result.append((finally_s, finally_b))
 
-        # Register merge state — set _rv if return_expr provided
-        merge_body = []
-        if return_expr is not None:
-            merge_body.append(ast.copy_location(_assign('_rv', return_expr), stmt))
-        merge_body.append(_state_assign('0'))
+        # Register merge state — _rv already set by _replace_returns at each return point
+        merge_body = [_state_assign('0')]
         result.append((merge_s, merge_body))
 
         return result
