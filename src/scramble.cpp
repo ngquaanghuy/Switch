@@ -645,6 +645,9 @@ private:
                         out += id;
                     } else if (after_dot_) {
                         // This identifier follows any '.' — it's an attribute, output as-is
+                        // We can't safely rename attributes because:
+                        // 1. External APIs (obj.update, obj.get) break if renamed
+                        // 2. getattr(obj, 'name') uses string literals we can't track
                         after_dot_ = false;
                         out += id;
                     } else {
