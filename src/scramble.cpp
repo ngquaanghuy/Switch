@@ -160,6 +160,7 @@ private:
     // Both suppress scrambling of the next dot-attribute, which is correct behavior
     // for both cases — module attributes and string methods must not be renamed.
     bool mod_seen_ = false;
+    bool after_dot_ = false;  // true after '.' — next identifier is an attribute, skip rename
     int scope_level_ = 0;
 
     // --- Helpers ---
@@ -247,9 +248,12 @@ private:
 
         while (i < n) {
             char c = src[i];
-            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            // Reset mod_seen_ and after_dot_ when chain breaks (non-dot, non-id char)
             if (state == State::NORMAL && mod_seen_ && c != '.' && !is_id_start(c)) {
                 mod_seen_ = false;
+            }
+            if (state == State::NORMAL && after_dot_ && c != '.' && !is_id_start(c)) {
+                after_dot_ = false;
             }
 
             switch (state) {
@@ -296,6 +300,13 @@ private:
                 } else if (c == '.' && mod_seen_) {
                     // Dot after a module name — skip it (part of module.attr access)
                     // Keep mod_seen_ = true for chained access (os.path.join)
+                    after_dot_ = true;  // next identifier is an attribute
+                    ++i;
+                    continue;
+                } else if (c == '.') {
+                    // Dot after any non-module name (e.g., obj.method())
+                    // Next identifier is an attribute — must not be renamed
+                    after_dot_ = true;
                     ++i;
                     continue;
                 } else if (is_id_start(c)) {
@@ -338,6 +349,9 @@ private:
                         if (module_names_.count(id) == 0) {
                             mod_seen_ = false;
                         }
+                    } else if (after_dot_) {
+                        // This identifier follows any '.' — it's an attribute, skip it
+                        after_dot_ = false;
                     } else if (!is_keyword(id) && !is_builtin(id) && import_names_.count(id) == 0) {
                         // Skip keywords, builtins, dunders
                         bool is_dunder = id.size() > 4 && id.substr(0, 2) == "__" && id.substr(id.size() - 2) == "__";
@@ -398,9 +412,12 @@ private:
 
         if (brace_depth > 0) {
             // Inside f-string expression { ... }
-            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            // Reset mod_seen_ and after_dot_ when chain breaks (non-dot, non-id char)
             if (mod_seen_ && c != '.' && !is_id_start(c)) {
                 mod_seen_ = false;
+            }
+            if (after_dot_ && c != '.' && !is_id_start(c)) {
+                after_dot_ = false;
             }
             if (c == '{') {
                 ++brace_depth;
@@ -444,12 +461,20 @@ private:
                 return; // i past closing quote; main loop ++i advances to next
             } else if (c == '.' && mod_seen_) {
                 // Dot after a module name inside f-string expression — skip
+                after_dot_ = true;
+                return;
+            } else if (c == '.') {
+                // Dot after any non-module name inside f-string — skip
+                after_dot_ = true;
                 return;
             } else if (is_id_start(c)) {
                 std::string id = collect_id(src, i);
                 if (mod_seen_) {
                     // Attribute of a module — skip mapping
                     // Keep mod_seen_ = true for chained access (os.path.join)
+                } else if (after_dot_) {
+                    // Attribute after any dot — skip mapping
+                    after_dot_ = false;
                 } else if (!is_keyword(id) && !is_builtin(id)) {
                     bool is_dunder = id.size() > 4 && id.substr(0, 2) == "__" && id.substr(id.size() - 2) == "__";
                     if (!is_dunder) map_id(id);
@@ -489,9 +514,12 @@ private:
 
         while (i < n) {
             char c = src[i];
-            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            // Reset mod_seen_ and after_dot_ when chain breaks (non-dot, non-id char)
             if (state == State::NORMAL && mod_seen_ && c != '.' && !is_id_start(c)) {
                 mod_seen_ = false;
+            }
+            if (state == State::NORMAL && after_dot_ && c != '.' && !is_id_start(c)) {
+                after_dot_ = false;
             }
             switch (state) {
 
@@ -548,6 +576,13 @@ private:
                     continue;
                 } else if (c == '.' && mod_seen_) {
                     // Dot after a module name — output as-is (part of module.attr access)
+                    after_dot_ = true;  // next identifier is an attribute
+                    out += c;
+                    ++i;
+                    continue;
+                } else if (c == '.') {
+                    // Dot after any non-module name (e.g., obj.method())
+                    after_dot_ = true;
                     out += c;
                     ++i;
                     continue;
@@ -598,6 +633,10 @@ private:
                         // This identifier follows a module name — it's an attribute, output as-is
                         // Keep mod_seen_ = true for chained access (os.path.join)
                         // Reset only when chain breaks (non-dot, non-id char later)
+                        out += id;
+                    } else if (after_dot_) {
+                        // This identifier follows any '.' — it's an attribute, output as-is
+                        after_dot_ = false;
                         out += id;
                     } else {
                         auto it = map_.find(id);
@@ -669,9 +708,12 @@ private:
         char delim = (state == State::FSTRING_S) ? '\'' : '"';
 
         if (brace_depth > 0) {
-            // Reset mod_seen_ when chain breaks (non-dot, non-id char)
+            // Reset mod_seen_ and after_dot_ when chain breaks (non-dot, non-id char)
             if (mod_seen_ && c != '.' && !is_id_start(c)) {
                 mod_seen_ = false;
+            }
+            if (after_dot_ && c != '.' && !is_id_start(c)) {
+                after_dot_ = false;
             }
             if (c == '{') {
                 ++brace_depth; out += c;
@@ -720,6 +762,12 @@ private:
                 return; // i past closing quote; main loop ++i advances to next
             } else if (c == '.' && mod_seen_) {
                 // Dot after a module name inside f-string expression — output as-is
+                after_dot_ = true;
+                out += c;
+                return;
+            } else if (c == '.') {
+                // Dot after any non-module name inside f-string — output as-is
+                after_dot_ = true;
                 out += c;
                 return;
             } else if (is_id_start(c)) {
@@ -732,6 +780,10 @@ private:
                     if (module_names_.count(id) == 0) {
                         mod_seen_ = false;
                     }
+                } else if (after_dot_) {
+                    // Attribute after any dot — output as-is
+                    after_dot_ = false;
+                    out += id;
                 } else {
                     auto it = map_.find(id);
                     if (it != map_.end()) {
