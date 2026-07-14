@@ -36,9 +36,9 @@ def _assign(name, value):
 
 
 def _state_assign(hex_id):
-    # Use integer 0 for exit state (must match while _s != 0 comparison)
+    # Use integer 0 for exit state (must match while _sf != 0 comparison)
     val = ast.Constant(value=0) if hex_id == '0' else ast.Constant(value=hex_id)
-    return _assign('_s', val)
+    return _assign('_sf', val)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ class FunctionFlattener(ast.NodeTransformer):
             last = stmts[-1] if stmts else None
             already_transitions = (
                 isinstance(last, ast.Assign)
-                and any(t.id == '_s' for t in last.targets
+                and any(t.id == '_sf' for t in last.targets
                         if isinstance(t, ast.Name))
             )
             if already_transitions:
@@ -177,9 +177,14 @@ class FunctionFlattener(ast.NodeTransformer):
                     cases.extend(self._flatten_if(s, merge_hint=hint,
                                                    return_expr=return_expr))
                 elif isinstance(s, (ast.For, ast.AsyncFor)):
-                    cases.extend(self._flatten_for(s, return_expr=return_expr))
+                    # For loop exit should continue to next state, not exit
+                    for_merge = loop_merge or next_state
+                    cases.extend(self._flatten_for(s, merge_hint=for_merge,
+                                                   return_expr=return_expr))
                 elif isinstance(s, ast.While):
-                    cases.extend(self._flatten_while(s, return_expr=return_expr))
+                    while_merge = loop_merge or next_state
+                    cases.extend(self._flatten_while(s, merge_hint=while_merge,
+                                                     return_expr=return_expr))
                 elif isinstance(s, ast.Try):
                     cases.extend(self._flatten_try(s, return_expr=return_expr))
             else:
@@ -206,7 +211,7 @@ class FunctionFlattener(ast.NodeTransformer):
             last_stmt = last_body[-1] if last_body else None
             already_transitions = (
                 isinstance(last_stmt, ast.Assign)
-                and any(t.id == '_s' for t in last_stmt.targets
+                and any(t.id == '_sf' for t in last_stmt.targets
                         if isinstance(t, ast.Name))
             )
             if not already_transitions:
@@ -411,11 +416,11 @@ class FunctionFlattener(ast.NodeTransformer):
 
         return ast.While(
             test=ast.Compare(
-                left=_name('_s'),
+                left=_name('_sf'),
                 ops=[ast.NotEq()],
                 comparators=[ast.Constant(value=0)]),
             body=[ast.Match(
-                subject=_name('_s'),
+                subject=_name('_sf'),
                 cases=match_cases)],
             orelse=[])
 
@@ -443,6 +448,55 @@ class FunctionFlattener(ast.NodeTransformer):
         # (break/continue replacement happens inside _flatten_for/_flatten_while
         # where the loop stack is properly set up)
         body_stmts = _replace_returns(list(node.body))
+
+        # Filter out assignments to state variable '_sf' from dead code injection
+        # (deadcode technique may inject code that assigns to _sf, breaking the state machine)
+        # Keep only state assignments: _sf = '0x...' (string) or _sf = 0 (exit)
+        def _is_state_assign(stmt):
+            if not isinstance(stmt, ast.Assign):
+                return False
+            for t in stmt.targets:
+                if isinstance(t, ast.Name) and t.id == '_sf':
+                    v = stmt.value
+                    # Keep: _sf = '0x...' (string state) or _sf = 0 (exit)
+                    if isinstance(v, ast.Constant) and (isinstance(v.value, str) or v.value == 0):
+                        return True
+                    return False  # filter out: _sf = expr (junk code)
+            return True  # not an _sf assignment — keep
+
+        def _filter_sf_assigns(stmts):
+            filtered = []
+            for s in stmts:
+                if not _is_state_assign(s):
+                    filtered.append(s)
+                    continue
+                if isinstance(s, ast.If):
+                    s = ast.copy_location(ast.If(
+                        test=s.test,
+                        body=_filter_sf_assigns(s.body),
+                        orelse=_filter_sf_assigns(s.orelse) if s.orelse else []
+                    ), s)
+                    filtered.append(s)
+                elif isinstance(s, (ast.For, ast.While)):
+                    s = ast.copy_location(type(s)(
+                        target=s.target, iter=s.iter,
+                        body=_filter_sf_assigns(s.body),
+                        orelse=s.orelse
+                    ), s)
+                    filtered.append(s)
+                elif isinstance(s, ast.Try):
+                    s = ast.copy_location(ast.Try(
+                        body=_filter_sf_assigns(s.body),
+                        handlers=s.handlers,
+                        orelse=_filter_sf_assigns(s.orelse),
+                        finalbody=_filter_sf_assigns(s.finalbody)
+                    ), s)
+                    filtered.append(s)
+                else:
+                    filtered.append(s)
+            return filtered
+
+        body_stmts = _filter_sf_assigns(body_stmts)
         cases = self._process_body(body_stmts, '0', return_expr=return_expr)
 
         if cases and not isinstance(cases[0], tuple):
@@ -485,16 +539,11 @@ def obfuscate(source):
     new_tree = flattener.visit(tree)
     ast.fix_missing_locations(new_tree)
 
-    # Prefix output with a runtime version guard so users on <3.10
-    # get a clear error instead of a cryptic SyntaxError.
-    header = (
-        "# -- Do not remove: Python 3.10+ required for match/case --\n"
-        "import sys as _sw_sys\n"
-        "if _sw_sys.version_info < (3, 10):\n"
-        "    raise SystemExit('This file requires Python 3.10+ (match/case syntax)')\n"
-        "del _sw_sys\n\n"
-    )
-    return header + ast.unparse(new_tree) + "\n"
+    # Note: CFF output requires Python 3.10+ (match/case syntax).
+    # We don't add a runtime version guard here because other obfuscation
+    # techniques (namemangling, scramble) may rename the imported module,
+    # causing conflicts. Users should add their own version check if needed.
+    return ast.unparse(new_tree) + "\n"
 
 
 def main():
