@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ctest *)",
+      "Bash(./switch *)",
+      "Bash(python3 *)"
+    ]
+  },
+  "$version": 4
+}

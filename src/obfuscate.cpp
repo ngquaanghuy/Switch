@@ -122,7 +122,7 @@ int obf_type_priority(ObfType type) {
     // importrewrite MUST run last among import-related techniques.
     switch (type) {
     case ObfType::DeadCode:            return 10;
-    case ObfType::NameMangling:        return 20;
+    case ObfType::NameMangling:        return 65;  // After Scramble(60): AST renames catch all identifiers from earlier passes
     case ObfType::DocStrip:            return 30;
     case ObfType::Literal:             return 40;
     case ObfType::StringEncoding:      return 50;
@@ -131,8 +131,8 @@ int obf_type_priority(ObfType type) {
     case ObfType::VariableSplitting:   return 80;
     case ObfType::ImportRewrite:       return 90;
     case ObfType::Inlining:  return 15;  // After DeadCode(10), before Outlining
-    case ObfType::Outlining: return 25;  // After Inlining, before NameMangling(30)
-    case ObfType::ControlFlowFlattening: return 76;  // After XOR(75), before OpaquePredicates
+    case ObfType::Outlining: return 18;  // After Inlining(15), before DocStrip(30)
+    case ObfType::ControlFlowFlattening: return 76;  // After XOR(70), before OpaquePredicates(78)
     case ObfType::OpaquePredicates: return 78;  // After CFF(76) — must not run before CFF
     }
     return 50;

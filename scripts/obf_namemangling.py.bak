@@ -39,7 +39,6 @@ class NameCollector(ast.NodeVisitor):
         self.names = set()
         self.string_refs = set()  # names that appear as string constants
         self.imported_names = set()  # names from import statements (must not rename)
-        self.local_attrs = set()  # attributes/methods defined in local classes
 
     def visit_FunctionDef(self, node):
         self.names.add(node.name)
@@ -56,19 +55,10 @@ class NameCollector(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         self.names.add(node.name)
-        # Collect methods and attributes defined in this class
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.local_attrs.add(item.name)
-            elif isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name):
-                        self.local_attrs.add(target.id)
         self.generic_visit(node)
 
     def visit_Name(self, node):
-        if node.id not in ('self', 'cls'):
-            self.names.add(node.id)
+        self.names.add(node.id)
         self.generic_visit(node)
 
     def visit_Constant(self, node):
@@ -135,8 +125,7 @@ class NameMangler(ast.NodeTransformer):
         return node
 
     def visit_Name(self, node):
-        if node.id not in ('self', 'cls'):
-            node.id = self._rename(node.id)
+        node.id = self._rename(node.id)
         return node
 
     def visit_arg(self, node):
@@ -157,10 +146,8 @@ class NameMangler(ast.NodeTransformer):
     visit_With = visit_For
 
     def visit_Attribute(self, node):
-        # DO NOT rename attributes — too unsafe with dynamic access,
-        # external objects, and interaction with other obfuscators.
-        # Only self.x where x is a known local attr could be safe,
-        # but without full class analysis it's not worth the risk.
+        # Rename attribute accesses (e.g., obj.add → obj._c)
+        node.attr = self._rename(node.attr)
         self.generic_visit(node)
         return node
 
@@ -202,7 +189,6 @@ def obfuscate(source):
     skip.add('self')
     skip.add('cls')
     skip.update(collector.imported_names)  # Don't rename imported module names
-    skip.update(collector.local_attrs)  # Don't rename class methods/attrs (unsafe without full analysis)
     for name in collector.names:
         if name.startswith(DUNDER_PATTERN) and name.endswith(DUNDER_PATTERN) and len(name) > 2:
             skip.add(name)

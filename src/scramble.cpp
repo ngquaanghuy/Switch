@@ -648,8 +648,15 @@ private:
                         // We can't safely rename attributes because:
                         // 1. External APIs (obj.update, obj.get) break if renamed
                         // 2. getattr(obj, 'name') uses string literals we can't track
+                        // However, if the identifier was collected from a user definition
+                        // (e.g., def foo → obj.foo), scramble it consistently.
                         after_dot_ = false;
-                        out += id;
+                        auto it = map_.find(id);
+                        if (it != map_.end()) {
+                            out += it->second;
+                        } else {
+                            out += id;
+                        }
                     } else {
                         // Check if this is a keyword argument: name=value (no space before =)
                         // In function calls: f(key=5) — no space before =
@@ -810,9 +817,16 @@ private:
                         mod_seen_ = false;
                     }
                 } else if (after_dot_) {
-                    // Attribute after any dot — output as-is
+                    // Attribute after any dot — scramble if in map (user-defined)
                     after_dot_ = false;
-                    out += id;
+                    {
+                        auto it = map_.find(id);
+                        if (it != map_.end()) {
+                            out += it->second;
+                        } else {
+                            out += id;
+                        }
+                    }
                 } else {
                     auto it = map_.find(id);
                     if (it != map_.end()) {
