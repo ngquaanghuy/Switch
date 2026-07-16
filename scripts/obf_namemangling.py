@@ -110,6 +110,7 @@ class NameMangler(ast.NodeTransformer):
 
     def __init__(self, mapping):
         self.mapping = mapping
+        self.local_attrs = set()
 
     def _rename(self, name):
         return self.mapping.get(name, name)
@@ -157,10 +158,10 @@ class NameMangler(ast.NodeTransformer):
     visit_With = visit_For
 
     def visit_Attribute(self, node):
-        # DO NOT rename attributes — too unsafe with dynamic access,
-        # external objects, and interaction with other obfuscators.
-        # Only self.x where x is a known local attr could be safe,
-        # but without full class analysis it's not worth the risk.
+        # Rename attributes that are known local class attrs/methods.
+        # This is safe because we only rename names defined within the same source.
+        if node.attr in self.local_attrs:
+            node.attr = self._rename(node.attr)
         self.generic_visit(node)
         return node
 

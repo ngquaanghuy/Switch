@@ -1028,6 +1028,7 @@ std::string make_python_decrypt_wrapper(EncryptType type,
     if (type == EncryptType::ChaCha20) {
         w += "    _box = ChaCha20Poly1305(_key)\n";
         w += "    _pt = _box.decrypt(_nonce, _ct, None)\n";
+        w += "    # finalize handled internally by decrypt()\n";
     } else if (type == EncryptType::XChaCha20) {
         w += "    _pt_buf = ffi.new('unsigned char[]', len(_ct) - 16)\n";
         w += "    _pt_len = ffi.new('unsigned long long *')\n";
