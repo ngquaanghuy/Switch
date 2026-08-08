@@ -1,13 +1,31 @@
-build/
-build_*/
-CLAUDE.md
-docs/
-*.o
-*.a
-*.so
-*.dylib
-*.exe
-.cache/
-.claude/
-.agents/
+```
+# Compiled Python files
+*.pyc
 __pycache__/
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Temporary and test files
+*.tmp
+Testing/Temporary/
+*.log
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
+```

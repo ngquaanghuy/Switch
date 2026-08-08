@@ -752,7 +752,7 @@ TEST_CASE("e2e: --key-file reads key from file and encrypts") {
     TempFileGuard guard{{input, output, keyfile}};
 
     // Run CLI with --key-file
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key-file " + keyfile
                     + " -o " + output + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
@@ -787,7 +787,7 @@ TEST_CASE("e2e: --key-file with whitespace-stripped key") {
     std::string output = "/tmp/switch_test_e2e_keyfile_ws.py";
     TempFileGuard guard{{input, output, keyfile}};
 
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key-file " + keyfile
                     + " -o " + output + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
@@ -813,7 +813,7 @@ TEST_CASE("e2e: --key-env reads key from environment variable") {
     TempFileGuard guard{{input, output}};
 
     std::string cmd = "MY_AES_KEY=" + std::string(AES256_KEY)
-                    + " /home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+                    + " /workspace/build/switch --encrypt aes-256 " + input
                     + " --key-env MY_AES_KEY"
                     + " -o " + output + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
@@ -839,7 +839,7 @@ TEST_CASE("e2e: --key-file nonexistent file fails") {
     std::string input = create_temp_file("print('test')\n");
     TempFileGuard guard{{input}};
 
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key-file /tmp/nonexistent_key_xxx.hex 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
     char buf[256] = {};
@@ -854,7 +854,7 @@ TEST_CASE("e2e: --key-env unset variable fails") {
     std::string input = create_temp_file("print('test')\n");
     TempFileGuard guard{{input}};
 
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key-env UNSET_VAR_XXXXX 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
     char buf[256] = {};
@@ -874,7 +874,7 @@ TEST_CASE("e2e: --key-file wrong length key fails") {
     std::string input = create_temp_file("print('test')\n");
     TempFileGuard guard{{input, keyfile}};
 
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key-file " + keyfile + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
     char buf[256] = {};
@@ -889,7 +889,7 @@ TEST_CASE("e2e: --key and --key-file mutually exclusive") {
     std::string input = create_temp_file("print('test')\n");
     TempFileGuard guard{{input}};
 
-    std::string cmd = "/home/ngquanghuy/Switch/build/switch --encrypt aes-256 " + input
+    std::string cmd = "/workspace/build/switch --encrypt aes-256 " + input
                     + " --key " + AES256_KEY
                     + " --key-file /tmp/some.key 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
